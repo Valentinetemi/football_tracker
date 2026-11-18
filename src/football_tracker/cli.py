@@ -64,6 +64,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="detections required before a track is displayed",
     )
     parser.add_argument(
+        "--no-team-classification",
+        action="store_true",
+        help="disable shirt-appearance team classification",
+    )
+    parser.add_argument(
+        "--team-sample-seconds",
+        type=float,
+        default=1.0,
+        help="seconds between calibration frames (default: 1.0)",
+    )
+    parser.add_argument(
+        "--team-confidence",
+        type=float,
+        default=0.35,
+        help="minimum shirt-classification confidence (default: 0.35)",
+    )
+    parser.add_argument(
         "--codec",
         default="mp4v",
         help="four-character OpenCV output codec (default: mp4v)",
@@ -84,6 +101,9 @@ def config_from_args(args: argparse.Namespace) -> PipelineConfig:
         reset_on_cut=not args.no_cut_reset,
         track_buffer=args.track_buffer,
         minimum_consecutive_frames=args.minimum_consecutive_frames,
+        classify_teams=not args.no_team_classification,
+        team_sample_seconds=args.team_sample_seconds,
+        team_uncertainty_threshold=args.team_confidence,
         codec=args.codec,
     )
 

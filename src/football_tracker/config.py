@@ -21,6 +21,10 @@ class PipelineConfig:
     reset_on_cut: bool = True
     track_buffer: int = 30
     minimum_consecutive_frames: int = 2
+    classify_teams: bool = True
+    team_sample_seconds: float = 1.0
+    team_minimum_samples: int = 20
+    team_uncertainty_threshold: float = 0.35
     codec: str = "mp4v"
 
     def validate(self) -> None:
@@ -43,6 +47,12 @@ class PipelineConfig:
             raise ValueError("Track buffer must be at least 1 frame.")
         if self.minimum_consecutive_frames < 1:
             raise ValueError("Minimum consecutive frames must be at least 1.")
+        if self.team_sample_seconds <= 0:
+            raise ValueError("Team sample interval must be positive.")
+        if self.team_minimum_samples < 4:
+            raise ValueError("Team classification needs at least 4 samples.")
+        if not 0.0 < self.team_uncertainty_threshold < 1.0:
+            raise ValueError("Team uncertainty threshold must be between 0 and 1.")
         if len(self.codec) != 4:
             raise ValueError("Codec must be a four-character OpenCV FourCC value.")
 
