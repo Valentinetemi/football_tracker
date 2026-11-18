@@ -1,0 +1,32 @@
+# Local environments and Python caches
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Model weights and generated inference artefacts
+*.pt
+*.pth
+*.onnx
+*.engine
+inputs/
+outputs/
+data/
+models/
+runs/
+
+# Video and media inputs/outputs
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.webm
+
+# Local configuration and OS files
+.env
+.env.*
+!.env.example
+.DS_Store
+
