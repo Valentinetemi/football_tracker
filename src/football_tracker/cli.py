@@ -100,7 +100,9 @@ def main(
             from football_tracker.pipeline import run_pipeline
 
             runner = run_pipeline
-        runner(config)
+        result = runner(config)
+        if result is not None:
+            print(result)
     except (RuntimeError, ValueError) as exc:
         parser.error(str(exc))
     return 0

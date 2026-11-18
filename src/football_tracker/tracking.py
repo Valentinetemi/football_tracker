@@ -67,3 +67,7 @@ class TrackManager:
         self.segment += 1
         self.reset_count += 1
 
+    @property
+    def display_track_count(self) -> int:
+        return self._next_display_id - 1
+
