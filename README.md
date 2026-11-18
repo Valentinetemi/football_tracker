@@ -1,12 +1,13 @@
 # Football Video Tracker
 
 An understandable, offline-first football video analysis project. The current CLI reads a
-local match clip, detects visible players and officials, assigns ByteTrack IDs, draws short
-image-space movement trails, and writes an annotated MP4 with one output frame per decoded
-input frame.
+local match clip, detects visible players and officials, assigns ByteTrack IDs, classifies
+outfield shirt appearance into two anonymous teams, draws short image-space movement trails,
+and writes an annotated MP4 with one output frame per decoded input frame.
 
-This is the first milestone of a one-week demo build started on 18 November 2026. Track IDs
-such as `T7` are temporary tracker IDs, **not real player identities**.
+This repository contains the first two milestones of a one-week demo build started on
+18 November 2026. Track IDs such as `T7` are temporary tracker IDs, **not real player
+identities**.
 
 ## Current status
 
@@ -17,13 +18,15 @@ such as `T7` are temporary tracker IDs, **not real player identities**.
 | ByteTrack IDs and movement trails | Working |
 | Camera-cut tracker reset | Working, histogram-based baseline |
 | MP4 export at source resolution and nominal FPS | Working for constant-frame-rate input |
-| Team shirt classification and team colours | Next milestone |
-| Goalkeeper/referee treatment | Detected as distinct classes with the football model; team logic pending |
+| Team shirt classification and team colours | Working baseline with explicit uncertainty |
+| Goalkeeper/referee treatment | Separate role colours; goalkeepers are not forced into an outfield-shirt cluster |
 | Pitch calibration and tactical view | Not implemented yet |
 | Ball, possession, speed, distance, and spacing | Not available yet |
 | Dashboard | Deliberately deferred until the video pipeline is reliable |
 
-The colours in today's output are deterministic **track colours**, not team colours.
+`team-a` and `team-b` are anonymous appearance clusters, not club names. Referees,
+goalkeepers, and uncertain tracks receive separate labels and colours. Track IDs such as
+`T7` remain temporary tracking IDs, never real player identities.
 
 ## Why this implementation
 
@@ -32,11 +35,16 @@ The colours in today's output are deterministic **track colours**, not team colo
 - **Supervision ByteTrack 0.25.1** follows the public Roboflow Sports soccer example and
   provides a compact, model-independent tracking baseline.
 - **OpenCV** keeps frame decoding, annotations, and encoding explicit enough to learn from.
+- A small **NumPy two-cluster classifier** learns robust Lab-colour statistics from upper-
+  torso crops. It avoids another heavyweight model in the first demo, abstains when the
+  clusters or a crop are ambiguous, and smooths decisions per track.
 - **MPS** is selected automatically on Apple Silicon, with `--device mps` available when you
   want to require it.
 - A camera cut clears ByteTrack motion state and starts a new segment. Display IDs remain
   globally unique, so an ID is never silently reused for a different person after the cut.
 - Output is written to a temporary file and atomically moved into place only after success.
+- Labels use a greedy nearby-placement pass to reduce collisions. Dense groups can still
+  overlap; this is a readability baseline, not a full label-layout solver.
 
 See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for credits and licence notes. The
 design is informed by the
@@ -78,7 +86,9 @@ PYTORCH_ENABLE_MPS_FALLBACK=1 football-tracker \
 ```
 
 The generic model tracks COCO's `person` class. It cannot distinguish players, goalkeepers,
-and referees.
+and referees, so every detected person is treated as an outfield player. Use
+`--no-team-classification` with this fallback if officials or sideline staff would pollute
+the two shirt clusters.
 
 ### Better football classes with the Roboflow Sports checkpoint
 
@@ -101,6 +111,24 @@ PYTORCH_ENABLE_MPS_FALLBACK=1 football-tracker \
 For that checkpoint, the CLI automatically selects `goalkeeper`, `player`, and `referee`
 and excludes `ball`. Use `--classes 1,2,3` only if automatic class-name inference does not
 match a different custom model.
+
+### Team-label behaviour
+
+Team classification is enabled by default. Before tracking, the CLI samples one frame per
+second, extracts colour features only from detections whose model class is `player`, and fits
+two shirt-appearance clusters for the clip. During tracking:
+
+- outfield players become `team-a`, `team-b`, or `unknown` after temporal smoothing;
+- referees retain the detector role and use a dedicated yellow annotation;
+- goalkeepers use `goalkeeper/unknown` and a dedicated magenta annotation, because their
+  different shirt should not be guessed into an outfield cluster;
+- weak calibration or ambiguous crops stay `unknown` instead of receiving a forced team;
+- camera cuts reset tracking and per-track shirt votes, so new tracks briefly return to
+  `unknown` while evidence accumulates.
+
+The cluster letters are stable within one run but have no semantic home/away meaning. Tune
+sampling and abstention with `--team-sample-seconds` and `--team-confidence`, or disable the
+calibration pass with `--no-team-classification`.
 
 Use `football-tracker --help` for confidence, tracker buffer, camera-cut, class, device, and
 codec options. If MPS is unavailable, use `--device cpu`; it will be slower.
@@ -126,10 +154,11 @@ pytest
 ruff check src tests
 ```
 
-The milestone was also run on a real Roboflow Sports football sample. The Git-ignored output
-contained 75/75 frames at 1920×1080, 25 FPS, and 3.0 seconds, matching the trimmed input.
-See [docs/verification.md](docs/verification.md) for the exact command, measured result, and
-honest visual limitations.
+The pipeline was run on real Roboflow Sports football footage. The original 3-second check
+and a 12-second team-classification check with pans and a constructed same-match camera cut
+both preserved input frame count, resolution, FPS, and duration. See
+[docs/verification.md](docs/verification.md) for the exact commands, measured results,
+observed ID behaviour, and visual limitations.
 
 ## Project layout
 
@@ -137,6 +166,7 @@ honest visual limitations.
 src/football_tracker/
   cli.py          argument parsing and early validation
   detection.py    Ultralytics adapter and football-class inference
+  classification.py  shirt features, uncertainty-aware clustering, and track smoothing
   scene.py        camera-cut score
   tracking.py     ByteTrack lifecycle and global display IDs
   annotation.py   boxes, foot markers, labels, and image-space trails
@@ -148,7 +178,7 @@ tests/            unit tests plus a generated-video MP4 integration test
 ## One-week roadmap
 
 1. **18 Nov — complete:** detection, tracking, cut resets, trails, timed MP4 export.
-2. **19 Nov:** shirt-appearance team classifier; preserve separate goalkeeper/referee roles.
+2. **18 Nov — complete:** uncertainty-aware shirt classification and separate role handling.
 3. **20 Nov:** pitch landmark model and per-shot homography quality checks.
 4. **21 Nov:** synchronized top-down pitch using only visible, calibrated foot positions.
 5. **22 Nov:** ball detector/tracker and uncertainty-aware estimated possession.

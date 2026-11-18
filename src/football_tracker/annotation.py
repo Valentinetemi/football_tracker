@@ -28,7 +28,7 @@ GOALKEEPER_COLOR_BGR = (210, 85, 210)
 
 
 def track_color(track_id: int) -> tuple[int, int, int]:
-    """Return a deterministic display colour; colours do not mean teams yet."""
+    """Return a deterministic fallback colour when team assignments are disabled."""
     return TRACK_COLORS_BGR[(track_id - 1) % len(TRACK_COLORS_BGR)]
 
 
