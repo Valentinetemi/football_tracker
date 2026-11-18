@@ -17,7 +17,7 @@ class SceneChange:
 class SceneChangeDetector:
     """Compare compact colour histograms and pixels between adjacent frames."""
 
-    def __init__(self, threshold: float = 0.65, minimum_gap_frames: int = 8) -> None:
+    def __init__(self, threshold: float = 0.25, minimum_gap_frames: int = 8) -> None:
         self.threshold = threshold
         self.minimum_gap_frames = minimum_gap_frames
         self._previous_histogram: np.ndarray | None = None

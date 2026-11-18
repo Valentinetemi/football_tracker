@@ -48,8 +48,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--cut-threshold",
         type=float,
-        default=0.65,
-        help="camera-cut sensitivity from 0 to 1 (default: 0.65)",
+        default=0.25,
+        help="camera-cut sensitivity from 0 to 1 (default: 0.25)",
     )
     parser.add_argument(
         "--no-cut-reset",

@@ -24,6 +24,18 @@ class SceneChangeDetectorTests(unittest.TestCase):
         self.assertTrue(change.is_cut)
         self.assertGreaterEqual(change.score, 0.65)
 
+    def test_broadcast_composition_change_is_a_cut_at_default_threshold(self) -> None:
+        detector = SceneChangeDetector()
+        wide = np.full((180, 320, 3), (30, 130, 30), dtype=np.uint8)
+        wide[:60] = (30, 30, 160)
+        close = np.full((180, 320, 3), (30, 130, 30), dtype=np.uint8)
+        detector.update(wide)
+
+        change = detector.update(close)
+
+        self.assertTrue(change.is_cut)
+        self.assertGreaterEqual(change.score, 0.25)
+
     def test_cut_cooldown_avoids_immediate_second_reset(self) -> None:
         detector = SceneChangeDetector(threshold=0.65, minimum_gap_frames=3)
         detector.update(np.zeros((180, 320, 3), dtype=np.uint8))

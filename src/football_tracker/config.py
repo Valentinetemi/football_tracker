@@ -17,7 +17,7 @@ class PipelineConfig:
     confidence: float = 0.25
     image_size: int = 1280
     class_ids: tuple[int, ...] | None = None
-    cut_threshold: float = 0.65
+    cut_threshold: float = 0.25
     reset_on_cut: bool = True
     track_buffer: int = 30
     minimum_consecutive_frames: int = 2
