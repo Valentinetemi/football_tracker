@@ -4,7 +4,9 @@ import unittest
 
 import numpy as np
 
+from football_tracker.annotation import assignment_color
 from football_tracker.classification import (
+    EntityAssignment,
     ShirtTeamClassifier,
     TeamPrediction,
     TrackTeamSmoother,
@@ -78,6 +80,16 @@ class TrackSmoothingTests(unittest.TestCase):
         self.assertEqual(role_from_class_name("goalkeeper"), "goalkeeper")
         self.assertEqual(role_from_class_name("referee"), "referee")
         self.assertEqual(role_from_class_name("something-new"), "unknown")
+
+    def test_role_and_team_colours_are_distinct(self) -> None:
+        team = assignment_color(EntityAssignment("player", 0, "team-a", 0.9, "test"))
+        referee = assignment_color(EntityAssignment("referee", None, "referee", 1.0, "test"))
+        goalkeeper = assignment_color(
+            EntityAssignment("goalkeeper", None, "goalkeeper/unknown", 0.0, "test")
+        )
+        unknown = assignment_color(EntityAssignment("player", None, "unknown", 0.0, "test"))
+
+        self.assertEqual(len({team, referee, goalkeeper, unknown}), 4)
 
 
 if __name__ == "__main__":

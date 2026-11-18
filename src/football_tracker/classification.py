@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from collections import deque
+from collections import Counter, deque
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
 
 import cv2
 import numpy as np
+import supervision as sv
 
 Role = Literal["player", "goalkeeper", "referee", "unknown"]
 
@@ -246,3 +248,74 @@ class TrackTeamSmoother:
 
     def clear(self) -> None:
         self._history.clear()
+
+
+@dataclass(frozen=True, slots=True)
+class EntityAssignment:
+    role: Role
+    team: int | None
+    label: str
+    confidence: float
+    reason: str
+
+
+class TeamAppearanceAssigner:
+    """Keep outfield team decisions separate from goalkeeper and referee roles."""
+
+    def __init__(
+        self,
+        classifier: ShirtTeamClassifier,
+        *,
+        history_length: int = 15,
+        minimum_votes: int = 3,
+    ) -> None:
+        self.classifier = classifier
+        self.smoother = TrackTeamSmoother(history_length, minimum_votes)
+        self._latest_by_track: dict[int, EntityAssignment] = {}
+
+    def assign(
+        self,
+        frame: np.ndarray,
+        detections: sv.Detections,
+        class_name: Callable[[int], str],
+    ) -> list[EntityAssignment]:
+        assignments: list[EntityAssignment] = []
+        class_ids = detections.class_id
+        tracker_ids = detections.tracker_id
+        for index, box in enumerate(detections.xyxy):
+            object_name = class_name(int(class_ids[index])) if class_ids is not None else "person"
+            role = role_from_class_name(object_name)
+            if role == "player":
+                prediction = self.classifier.predict(frame, box)
+                if tracker_ids is not None:
+                    prediction = self.smoother.update(int(tracker_ids[index]), prediction)
+                assignment = EntityAssignment(
+                    role,
+                    prediction.team,
+                    prediction.label,
+                    prediction.confidence,
+                    prediction.reason,
+                )
+            elif role == "referee":
+                assignment = EntityAssignment(role, None, "referee", 1.0, "detector role")
+            elif role == "goalkeeper":
+                assignment = EntityAssignment(
+                    role,
+                    None,
+                    "goalkeeper/unknown",
+                    0.0,
+                    "goalkeeper team is not inferred from its different shirt",
+                )
+            else:
+                assignment = EntityAssignment(role, None, "unknown", 0.0, "unrecognized role")
+            assignments.append(assignment)
+            if tracker_ids is not None:
+                self._latest_by_track[int(tracker_ids[index])] = assignment
+        return assignments
+
+    def reset_tracks(self) -> None:
+        self.smoother.clear()
+
+    def summary_counts(self) -> tuple[tuple[str, int], ...]:
+        counts = Counter(item.label for item in self._latest_by_track.values())
+        return tuple(sorted(counts.items()))
