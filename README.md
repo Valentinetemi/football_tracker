@@ -6,6 +6,8 @@ outfield shirt appearance into two anonymous teams, calibrates wide broadcast vi
 pitch landmarks, and writes an annotated MP4 with a synchronized tactical pitch underneath.
 With an optional roster, it also makes conservative, explicitly tentative player-name
 suggestions from repeated jersey-number reads.
+Ball detection and conservative short-term association are also available as an opt-in mode;
+possession is deliberately not inferred yet.
 
 This repository contains the first five milestones of a one-week demo build started on
 18 November 2026. Track IDs such as `T7` are temporary tracker IDs, **not real player
@@ -24,7 +26,8 @@ identities**.
 | Goalkeeper/referee treatment | Separate role colours; goalkeepers are not forced into an outfield-shirt cluster |
 | Pitch calibration and tactical view | Working wide-shot baseline with per-frame trust gates |
 | Jersey number / roster suggestions | Optional EasyOCR baseline; multi-frame consensus, roster-backed, and deliberately abstains on distant footage |
-| Ball, possession, speed, distance, and spacing | Not available yet |
+| Ball detection/tracking | Optional baseline; current-frame markers only, with uncertainty hiding |
+| Possession, speed, distance, and spacing | Not available yet |
 | Dashboard | Deliberately deferred until the video pipeline is reliable |
 
 `team-a` and `team-b` are anonymous appearance clusters, not club names. Referees,
@@ -58,6 +61,10 @@ goalkeepers, and uncertain tracks receive separate labels and colours. Track IDs
   torso crops from sufficiently large outfield-player tracks. A name is suggested only after
   at least three accepted reads agree and the exact `(team-a|team-b, number)` roster entry
   exists. Soccer-specific OCR is a future upgrade, not hidden behind this baseline.
+- The Roboflow football checkpoint already contains a `ball` class, so `--track-ball` reuses
+  the existing YOLO inference pass rather than loading a second model. A marker is shown only
+  after consecutive, motion-consistent detections; misses and ambiguous candidates are hidden
+  instead of extrapolated. Ball association state is cleared at every camera cut.
 
 See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for credits and licence notes. The
 design is informed by the
@@ -134,6 +141,30 @@ PYTORCH_ENABLE_MPS_FALLBACK=1 football-tracker \
 For that checkpoint, the CLI automatically selects `goalkeeper`, `player`, and `referee`
 and excludes `ball`. Use `--classes 1,2,3` only if automatic class-name inference does not
 match a different custom model.
+
+### Optionally track the ball
+
+The same football checkpoint reports classes `ball`, `goalkeeper`, `player`, and `referee`.
+Enable its ball class without changing the default replay behavior:
+
+```bash
+PYTORCH_ENABLE_MPS_FALLBACK=1 football-tracker \
+  inputs/match.mp4 \
+  --output outputs/match-ball-replay.mp4 \
+  --model models/football-player-detection.pt \
+  --pitch-model models/football-pitch-detection.pt \
+  --track-ball \
+  --ball-confidence 0.35 \
+  --device mps \
+  --image-size 960
+```
+
+The default requires two consecutive reads before drawing the ball. A lost or ambiguous ball
+is hidden immediately on both views; the retained gap is association memory only and never
+draws a predicted position. The tactical dot is additionally gated by trusted calibration.
+Because the homography models the ground plane, an airborne ball's tactical location is only
+an approximation. `--ball-minimum-hits` and `--ball-maximum-gap` expose the main association
+controls. Possession estimation is intentionally deferred.
 
 ### Add the synchronized tactical pitch
 
@@ -260,6 +291,7 @@ observed ID behaviour, and visual limitations.
 src/football_tracker/
   cli.py          argument parsing and early validation
   detection.py    Ultralytics adapter and football-class inference
+  ball.py         confidence filtering and conservative ball association
   classification.py  shirt features, uncertainty-aware clustering, and track smoothing
   identity.py     roster validation, jersey crops, replaceable OCR, and track consensus
   pitch.py        pitch geometry, landmark adapter, RANSAC fit, and quality gates
@@ -280,7 +312,8 @@ tests/            unit tests plus a generated-video MP4 integration test
 4. **19 Nov — complete:** synchronized pitch using only visible, calibrated foot positions.
 5. **19 Nov — baseline complete:** optional jersey OCR and tentative roster suggestions;
    readable close-shot validation footage is still required.
-6. **22 Nov:** ball detector/tracker and uncertainty-aware estimated possession.
+6. **19 Nov — baseline complete:** optional ball detector/tracker with current-frame-only
+   replay markers; possession remains deferred.
 7. **23 Nov:** validation clips, ID/calibration quality gates, then speed/distance/spacing only
    where metric calibration supports them.
 8. **24 Nov:** demo polish and a small dashboard after the annotated video remains reliable.

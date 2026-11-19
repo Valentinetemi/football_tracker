@@ -399,3 +399,74 @@ name suggestions.
 
 At the end of this milestone, all **47 tests** passed and `ruff check src tests` reported no
 issues. The generated six-second pan and four-second cut MP4s also decoded fully with FFmpeg.
+
+## Optional ball tracking — 19 November 2026
+
+The existing Roboflow football checkpoint was inspected locally before implementation. Its
+class metadata is `{0: ball, 1: goalkeeper, 2: player, 3: referee}`, so the ball uses the same
+YOLO prediction pass as the people classes; no second detection model or weight file was
+added.
+
+### Six-second pass and disappearance check
+
+The first 150 frames of the available 1920×1080, 25 FPS wide shot contain a visible pass and
+several intervals where the small ball is blurred, occluded, or not detected. The tactical
+verification command was:
+
+```bash
+PYTORCH_ENABLE_MPS_FALLBACK=1 football-tracker \
+  /private/tmp/ball-probe-6s.mp4 \
+  --output outputs/ball-tactical-replay-6s.mp4 \
+  --model /private/tmp/football-player-detection.pt \
+  --pitch-model data/football-pitch-detection.pt \
+  --device mps \
+  --image-size 1280 \
+  --confidence 0.25 \
+  --team-sample-seconds 1.0 \
+  --track-ball \
+  --ball-confidence 0.35
+```
+
+Observed result:
+
+```text
+Wrote 150 frames at 25.000 FPS to outputs/ball-tactical-replay-6s.mp4 (24 tracks, 0 camera-cut resets). Team classification ready (goalkeeper/unknown=1, referee=3, team-a=10, team-b=10). Pitch calibration trusted on 150/150 frames with 3277 visible positions projected. Ball visible on 84 frames; missed=39, ambiguous=0, recoveries=9.
+```
+
+Output metadata was 1920×1490, 150 frames, 25 FPS, and 6.000 seconds. FFmpeg decoded the
+complete output without errors. A separate association diagnostic measured 95 frames with one
+or more ball candidates at confidence 0.35 or above. The two-hit gate displayed 84 frames;
+11 candidate frames were deliberately withheld while starting or restarting a reliable run.
+The `missed=39` counter covers loss frames while association memory was active, not every frame
+without a candidate at the beginning or end of the clip.
+
+The displayed intervals were frames 16–17, 20–23, 26–35, 43–48, 56, 61–91, 100–124,
+131–132, 135, and 138–139. At least one full-resolution frame from each interval was visually
+inspected. The marker followed the visible ball through the pass; no inspected displayed
+interval contained an obvious false detection. This is a visual check, not a labelled accuracy
+measurement.
+
+Misses were visible at frames such as 18, 36, 49–54, 92–98, and from frame 140 to the end.
+Both the footage marker and tactical ball dot were absent on those sampled loss frames. After
+a gap, the first new candidate remained hidden and the marker returned on the second compatible
+frame, producing nine measured recoveries. No frame had competing candidates that passed the
+confidence gate, so the ambiguity branch was not exercised by this clip; unit tests cover its
+fail-closed behavior.
+
+Calibration was trusted throughout this shot, and sampled displayed frames showed the ball on
+both the footage and tactical pitch. The tactical projection uses the image-space ball center
+with a ground-plane homography, so airborne-ball height can shift the apparent top-down point;
+it must not be treated as metric ground truth. Camera-cut reset behavior is covered by tests
+that clear all ball motion/hit state and require fresh evidence after the cut. This six-second
+fixture itself contains no edit.
+
+### Jersey OCR follow-up
+
+The available wide shot is the same distant footage already checked for jersey OCR: player
+boxes are roughly 49–131 pixels tall and produced zero accepted number reads. It still does not
+contain two consistently readable shirt numbers, so the requested two-player roster check was
+not rerun or claimed. Suitable follow-up footage remains a 1080p/4K medium or close shot with
+two known players back-facing across several sharp frames and a matching roster.
+
+At the end of this milestone, all **57 tests** passed and `ruff check src tests` reported no
+issues. The 150-frame tactical replay also decoded fully with FFmpeg.
