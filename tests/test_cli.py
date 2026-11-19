@@ -36,6 +36,30 @@ class CliTests(unittest.TestCase):
         self.assertEqual(received[0].input_path, input_path)
         self.assertEqual(received[0].model, "yolo11n.pt")
 
+    def test_pitch_model_enables_calibration_configuration(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            input_path = root / "clip.mp4"
+            pitch_model = root / "pitch.pt"
+            input_path.touch()
+            pitch_model.touch()
+            received = []
+
+            exit_code = main(
+                [
+                    str(input_path),
+                    "--output",
+                    str(root / "tracked.mp4"),
+                    "--pitch-model",
+                    str(pitch_model),
+                ],
+                runner=received.append,
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(received[0].pitch_model, str(pitch_model))
+        self.assertEqual(received[0].pitch_minimum_keypoints, 6)
+
 
 if __name__ == "__main__":
     unittest.main()

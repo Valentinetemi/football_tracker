@@ -25,6 +25,11 @@ class PipelineConfig:
     team_sample_seconds: float = 1.0
     team_minimum_samples: int = 20
     team_uncertainty_threshold: float = 0.35
+    pitch_model: str | None = None
+    pitch_image_size: int = 640
+    pitch_keypoint_confidence: float = 0.5
+    pitch_minimum_keypoints: int = 6
+    pitch_maximum_error: float = 10.0
     codec: str = "mp4v"
 
     def validate(self) -> None:
@@ -53,6 +58,16 @@ class PipelineConfig:
             raise ValueError("Team classification needs at least 4 samples.")
         if not 0.0 < self.team_uncertainty_threshold < 1.0:
             raise ValueError("Team uncertainty threshold must be between 0 and 1.")
+        if self.pitch_model is not None and not Path(self.pitch_model).expanduser().is_file():
+            raise ValueError(f"Pitch model does not exist: {self.pitch_model}")
+        if self.pitch_image_size <= 0:
+            raise ValueError("Pitch image size must be positive.")
+        if not 0.0 < self.pitch_keypoint_confidence < 1.0:
+            raise ValueError("Pitch keypoint confidence must be between 0 and 1.")
+        if self.pitch_minimum_keypoints < 4:
+            raise ValueError("Pitch calibration needs at least 4 keypoints.")
+        if self.pitch_maximum_error <= 0:
+            raise ValueError("Pitch maximum reprojection error must be positive.")
         if len(self.codec) != 4:
             raise ValueError("Codec must be a four-character OpenCV FourCC value.")
 

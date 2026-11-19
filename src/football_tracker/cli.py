@@ -81,6 +81,34 @@ def build_parser() -> argparse.ArgumentParser:
         help="minimum shirt-classification confidence (default: 0.35)",
     )
     parser.add_argument(
+        "--pitch-model",
+        help="local Ultralytics pitch-landmark checkpoint; enables tactical pitch output",
+    )
+    parser.add_argument(
+        "--pitch-image-size",
+        type=int,
+        default=640,
+        help="pitch landmark inference size (default: 640)",
+    )
+    parser.add_argument(
+        "--pitch-keypoint-confidence",
+        type=float,
+        default=0.5,
+        help="minimum pitch landmark confidence (default: 0.5)",
+    )
+    parser.add_argument(
+        "--pitch-minimum-keypoints",
+        type=int,
+        default=6,
+        help="minimum landmarks required for calibration (default: 6)",
+    )
+    parser.add_argument(
+        "--pitch-maximum-error",
+        type=float,
+        default=10.0,
+        help="maximum median landmark reprojection error in pixels (default: 10)",
+    )
+    parser.add_argument(
         "--codec",
         default="mp4v",
         help="four-character OpenCV output codec (default: mp4v)",
@@ -104,6 +132,11 @@ def config_from_args(args: argparse.Namespace) -> PipelineConfig:
         classify_teams=not args.no_team_classification,
         team_sample_seconds=args.team_sample_seconds,
         team_uncertainty_threshold=args.team_confidence,
+        pitch_model=args.pitch_model,
+        pitch_image_size=args.pitch_image_size,
+        pitch_keypoint_confidence=args.pitch_keypoint_confidence,
+        pitch_minimum_keypoints=args.pitch_minimum_keypoints,
+        pitch_maximum_error=args.pitch_maximum_error,
         codec=args.codec,
     )
 
