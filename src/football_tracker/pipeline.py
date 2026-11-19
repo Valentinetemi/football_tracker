@@ -107,7 +107,8 @@ class PipelineSummary:
         if self.jersey_suggestions is not None:
             result += (
                 f" Jersey suggestions: {self.jersey_suggestions.suggested_tracks} tracks "
-                f"from {self.jersey_suggestions.accepted_reads} accepted reads; "
+                f"from {self.jersey_suggestions.accepted_reads} accepted reads across "
+                f"{self.jersey_suggestions.clear_crops_sampled} clear crops; "
                 f"{self.jersey_suggestions.unresolved_tracks} unresolved."
             )
         return result

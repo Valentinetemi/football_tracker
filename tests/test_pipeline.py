@@ -271,6 +271,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(ocr.calls, 2)
         self.assertEqual(summary.jersey_suggestions.suggested_tracks, 1)  # type: ignore[union-attr]
         self.assertEqual(summary.jersey_suggestions.unresolved_tracks, 0)  # type: ignore[union-attr]
+        self.assertIn("2 accepted reads across 2 clear crops", str(summary))
 
 
 if __name__ == "__main__":

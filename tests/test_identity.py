@@ -15,6 +15,7 @@ from football_tracker.identity import (
     JerseySuggestionEngine,
     Roster,
     RosterEntry,
+    easyocr_runtime_options,
     extract_jersey_crop,
 )
 
@@ -96,6 +97,11 @@ class RosterTests(unittest.TestCase):
 
         self.assertEqual(result.number, 10)
         self.assertAlmostEqual(result.confidence, 0.87)
+
+    def test_easyocr_uses_cpu_for_mps_but_preserves_cuda(self) -> None:
+        self.assertEqual(easyocr_runtime_options("mps"), (False, True))
+        self.assertEqual(easyocr_runtime_options("cpu"), (False, True))
+        self.assertEqual(easyocr_runtime_options("cuda"), ("cuda", False))
 
 
 class JerseySuggestionTests(unittest.TestCase):

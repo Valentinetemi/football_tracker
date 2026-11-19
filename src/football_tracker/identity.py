@@ -92,6 +92,13 @@ class JerseyNumberOCR(Protocol):
     def read(self, crop: np.ndarray) -> JerseyRead: ...
 
 
+def easyocr_runtime_options(resolved_device: str) -> tuple[str | bool, bool]:
+    """Keep EasyOCR on CPU for MPS, which is not stable in its 1.7 runtime."""
+    if resolved_device in {"cpu", "mps"}:
+        return False, True
+    return resolved_device, False
+
+
 class EasyOCRJerseyNumberOCR:
     """General scene-text baseline; a soccer-specific model can replace this class."""
 
@@ -111,14 +118,15 @@ class EasyOCRJerseyNumberOCR:
                     "Install them with: python -m pip install -e '.[ocr]'"
                 ) from exc
             resolved_device = resolve_device(device)
+            easyocr_device, quantize = easyocr_runtime_options(resolved_device)
             model_directory.mkdir(parents=True, exist_ok=True)
             try:
                 reader = easyocr.Reader(
                     ["en"],
-                    gpu=resolved_device,
+                    gpu=easyocr_device,
                     model_storage_directory=str(model_directory),
                     verbose=False,
-                    quantize=resolved_device == "cpu",
+                    quantize=quantize,
                 )
             except Exception as exc:
                 raise RuntimeError(f"Could not initialize EasyOCR: {exc}") from exc
