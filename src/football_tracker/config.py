@@ -31,6 +31,14 @@ class PipelineConfig:
     pitch_minimum_keypoints: int = 6
     pitch_maximum_error: float = 10.0
     pitch_panel_height: int | None = None
+    roster_path: Path | None = None
+    jersey_ocr_backend: str = "easyocr"
+    jersey_model_directory: Path = Path("models/easyocr")
+    jersey_sample_interval: int = 5
+    jersey_minimum_votes: int = 3
+    jersey_minimum_confidence: float = 0.35
+    jersey_minimum_player_height: int = 120
+    jersey_minimum_sharpness: float = 20.0
     codec: str = "mp4v"
 
     def validate(self) -> None:
@@ -71,6 +79,20 @@ class PipelineConfig:
             raise ValueError("Pitch maximum reprojection error must be positive.")
         if self.pitch_panel_height is not None and self.pitch_panel_height < 80:
             raise ValueError("Pitch panel height must be at least 80 pixels.")
+        if self.roster_path is not None and not self.roster_path.is_file():
+            raise ValueError(f"Roster CSV does not exist: {self.roster_path}")
+        if self.jersey_ocr_backend != "easyocr":
+            raise ValueError("Jersey OCR backend must be 'easyocr'.")
+        if self.jersey_sample_interval < 1:
+            raise ValueError("Jersey sample interval must be at least 1 frame.")
+        if self.jersey_minimum_votes < 2:
+            raise ValueError("Jersey suggestions need at least 2 votes.")
+        if not 0.0 < self.jersey_minimum_confidence <= 1.0:
+            raise ValueError("Jersey OCR confidence must be between 0 and 1.")
+        if self.jersey_minimum_player_height < 24:
+            raise ValueError("Jersey minimum player height must be at least 24 pixels.")
+        if self.jersey_minimum_sharpness < 0:
+            raise ValueError("Jersey minimum sharpness cannot be negative.")
         if len(self.codec) != 4:
             raise ValueError("Codec must be a four-character OpenCV FourCC value.")
 

@@ -60,6 +60,33 @@ class CliTests(unittest.TestCase):
         self.assertEqual(received[0].pitch_model, str(pitch_model))
         self.assertEqual(received[0].pitch_minimum_keypoints, 6)
 
+    def test_roster_enables_optional_identity_configuration(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            input_path = root / "clip.mp4"
+            roster_path = root / "roster.csv"
+            input_path.touch()
+            roster_path.write_text(
+                "team,number,name\nteam-a,10,Ada\n",
+                encoding="utf-8",
+            )
+            received = []
+
+            exit_code = main(
+                [
+                    str(input_path),
+                    "--output",
+                    str(root / "tracked.mp4"),
+                    "--roster",
+                    str(roster_path),
+                ],
+                runner=received.append,
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(received[0].roster_path, roster_path)
+        self.assertEqual(received[0].jersey_minimum_votes, 3)
+
 
 if __name__ == "__main__":
     unittest.main()

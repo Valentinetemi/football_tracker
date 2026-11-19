@@ -114,6 +114,47 @@ def build_parser() -> argparse.ArgumentParser:
         help="tactical panel height in pixels (default: 38%% of source height, minimum 240)",
     )
     parser.add_argument(
+        "--roster",
+        type=Path,
+        help="optional CSV with team,number,name; team must be team-a or team-b",
+    )
+    parser.add_argument(
+        "--jersey-ocr-backend",
+        choices=("easyocr",),
+        default="easyocr",
+        help="replaceable jersey OCR implementation (default: easyocr)",
+    )
+    parser.add_argument(
+        "--jersey-model-directory",
+        type=Path,
+        default=Path("models/easyocr"),
+        help="Git-ignored EasyOCR weights/cache directory",
+    )
+    parser.add_argument(
+        "--jersey-sample-interval",
+        type=int,
+        default=5,
+        help="frames between clear-crop OCR attempts per track (default: 5)",
+    )
+    parser.add_argument(
+        "--jersey-minimum-votes",
+        type=int,
+        default=3,
+        help="compatible OCR reads required for a suggestion (default: 3)",
+    )
+    parser.add_argument(
+        "--jersey-minimum-confidence",
+        type=float,
+        default=0.35,
+        help="minimum per-crop OCR confidence (default: 0.35)",
+    )
+    parser.add_argument(
+        "--jersey-minimum-player-height",
+        type=int,
+        default=120,
+        help="minimum detected player height for OCR (default: 120)",
+    )
+    parser.add_argument(
         "--codec",
         default="mp4v",
         help="four-character OpenCV output codec (default: mp4v)",
@@ -143,6 +184,13 @@ def config_from_args(args: argparse.Namespace) -> PipelineConfig:
         pitch_minimum_keypoints=args.pitch_minimum_keypoints,
         pitch_maximum_error=args.pitch_maximum_error,
         pitch_panel_height=args.pitch_panel_height,
+        roster_path=args.roster,
+        jersey_ocr_backend=args.jersey_ocr_backend,
+        jersey_model_directory=args.jersey_model_directory,
+        jersey_sample_interval=args.jersey_sample_interval,
+        jersey_minimum_votes=args.jersey_minimum_votes,
+        jersey_minimum_confidence=args.jersey_minimum_confidence,
+        jersey_minimum_player_height=args.jersey_minimum_player_height,
         codec=args.codec,
     )
 
