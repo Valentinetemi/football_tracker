@@ -109,6 +109,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="maximum median landmark reprojection error in pixels (default: 10)",
     )
     parser.add_argument(
+        "--pitch-panel-height",
+        type=int,
+        help="tactical panel height in pixels (default: 38%% of source height, minimum 240)",
+    )
+    parser.add_argument(
         "--codec",
         default="mp4v",
         help="four-character OpenCV output codec (default: mp4v)",
@@ -137,6 +142,7 @@ def config_from_args(args: argparse.Namespace) -> PipelineConfig:
         pitch_keypoint_confidence=args.pitch_keypoint_confidence,
         pitch_minimum_keypoints=args.pitch_minimum_keypoints,
         pitch_maximum_error=args.pitch_maximum_error,
+        pitch_panel_height=args.pitch_panel_height,
         codec=args.codec,
     )
 

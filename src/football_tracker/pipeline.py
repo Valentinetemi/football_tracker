@@ -20,9 +20,17 @@ from football_tracker.classification import (
 )
 from football_tracker.config import PipelineConfig
 from football_tracker.detection import UltralyticsDetector
+from football_tracker.pitch import (
+    PitchCalibration,
+    PitchCalibrator,
+    PitchKeypoints,
+    SoccerPitch,
+    UltralyticsPitchDetector,
+)
 from football_tracker.scene import SceneChangeDetector
+from football_tracker.tactical import render_tactical_panel, resolve_panel_height, stack_replay
 from football_tracker.tracking import TrackManager
-from football_tracker.video import VideoReader, VideoWriter
+from football_tracker.video import VideoMetadata, VideoReader, VideoWriter
 
 
 class Detector(Protocol):
@@ -40,6 +48,23 @@ class Tracks(Protocol):
     def reset_for_camera_cut(self) -> None: ...
 
 
+class PitchDetector(Protocol):
+    def detect(self, frame: np.ndarray) -> PitchKeypoints: ...
+
+
+class Calibrator(Protocol):
+    pitch: SoccerPitch
+
+    def update(
+        self,
+        keypoints: PitchKeypoints,
+        *,
+        frame_size: tuple[int, int],
+    ) -> PitchCalibration: ...
+
+    def invalidate(self, reason: str = "camera cut") -> PitchCalibration: ...
+
+
 @dataclass(frozen=True, slots=True)
 class PipelineSummary:
     output_path: str
@@ -49,6 +74,10 @@ class PipelineSummary:
     unique_tracks: int | None
     team_calibration: CalibrationReport | None
     classification_counts: tuple[tuple[str, int], ...]
+    pitch_trusted_frames: int
+    pitch_unavailable_frames: int
+    projected_positions: int
+    pitch_dropout_reasons: tuple[tuple[str, int], ...]
 
     def __str__(self) -> str:
         tracks = "unknown" if self.unique_tracks is None else str(self.unique_tracks)
@@ -61,6 +90,12 @@ class PipelineSummary:
             counts = ", ".join(f"{label}={count}" for label, count in self.classification_counts)
             result += f" Team classification {state}"
             result += f" ({counts})." if counts else "."
+        pitch_frames = self.pitch_trusted_frames + self.pitch_unavailable_frames
+        if pitch_frames:
+            result += (
+                f" Pitch calibration trusted on {self.pitch_trusted_frames}/{pitch_frames} "
+                f"frames with {self.projected_positions} visible positions projected."
+            )
         return result
 
 
@@ -115,6 +150,8 @@ def run_pipeline(
     detector: Detector | None = None,
     tracks: Tracks | None = None,
     team_classifier: ShirtTeamClassifier | None = None,
+    pitch_detector: PitchDetector | None = None,
+    pitch_calibrator: Calibrator | None = None,
     show_progress: bool = True,
 ) -> PipelineSummary:
     """Process every decoded source frame once and write it at the source FPS."""
@@ -159,12 +196,43 @@ def run_pipeline(
             minimum_consecutive_frames=config.minimum_consecutive_frames,
         )
 
+    pitch_enabled = config.pitch_model is not None or pitch_detector is not None
+    panel_height = 0
+    output_metadata = metadata
+    if pitch_enabled:
+        if pitch_detector is None:
+            if config.pitch_model is None:  # defensive; covered by pitch_enabled
+                raise RuntimeError("Pitch model path was not configured.")
+            pitch_detector = UltralyticsPitchDetector(
+                config.pitch_model,
+                device=config.device,
+                image_size=config.pitch_image_size,
+            )
+        if pitch_calibrator is None:
+            pitch_calibrator = PitchCalibrator(
+                keypoint_confidence=config.pitch_keypoint_confidence,
+                minimum_keypoints=config.pitch_minimum_keypoints,
+                maximum_median_error_px=config.pitch_maximum_error,
+            )
+        panel_height = resolve_panel_height(metadata.height, config.pitch_panel_height)
+        output_metadata = VideoMetadata(
+            metadata.width,
+            metadata.height + panel_height,
+            metadata.fps,
+            metadata.reported_frame_count,
+        )
+
+    pitch_trusted_frames = 0
+    pitch_unavailable_frames = 0
+    projected_positions = 0
+    pitch_dropout_counts: dict[str, int] = {}
+
     with VideoReader(config.input_path) as reader:
         scene_detector = SceneChangeDetector(threshold=config.cut_threshold)
         trails = TrailStore()
         total = metadata.reported_frame_count or None
         progress = tqdm(total=total, desc="tracking", unit="frame", disable=not show_progress)
-        with progress, VideoWriter(config.output_path, metadata, config.codec) as writer:
+        with progress, VideoWriter(config.output_path, output_metadata, config.codec) as writer:
             for _, frame in reader:
                 scene_change = scene_detector.update(frame)
                 reset_for_cut = config.reset_on_cut and scene_change.is_cut
@@ -191,7 +259,37 @@ def run_pipeline(
                     camera_cut=reset_for_cut,
                     scene_score=scene_change.score,
                 )
-                writer.write(annotated)
+                output_frame = annotated
+                if pitch_enabled:
+                    if pitch_detector is None or pitch_calibrator is None:
+                        raise RuntimeError("Pitch calibration components were not initialized.")
+                    if reset_for_cut:
+                        pitch_calibration = pitch_calibrator.invalidate("camera cut")
+                    else:
+                        pitch_keypoints = pitch_detector.detect(frame)
+                        pitch_calibration = pitch_calibrator.update(
+                            pitch_keypoints,
+                            frame_size=(metadata.width, metadata.height),
+                        )
+                    tactical_panel, frame_positions = render_tactical_panel(
+                        width=metadata.width,
+                        height=panel_height,
+                        pitch=pitch_calibrator.pitch,
+                        calibration=pitch_calibration,
+                        detections=tracked,
+                        assignments=assignments,
+                        class_name=detector.class_name,
+                    )
+                    if pitch_calibration.trusted:
+                        pitch_trusted_frames += 1
+                        projected_positions += frame_positions
+                    else:
+                        pitch_unavailable_frames += 1
+                        pitch_dropout_counts[pitch_calibration.reason] = (
+                            pitch_dropout_counts.get(pitch_calibration.reason, 0) + 1
+                        )
+                    output_frame = stack_replay(annotated, tactical_panel)
+                writer.write(output_frame)
                 progress.update(1)
 
             frames_written = writer.frames_written
@@ -207,4 +305,8 @@ def run_pipeline(
         classification_counts=(
             appearance_assigner.summary_counts() if appearance_assigner is not None else ()
         ),
+        pitch_trusted_frames=pitch_trusted_frames,
+        pitch_unavailable_frames=pitch_unavailable_frames,
+        projected_positions=projected_positions,
+        pitch_dropout_reasons=tuple(sorted(pitch_dropout_counts.items())),
     )

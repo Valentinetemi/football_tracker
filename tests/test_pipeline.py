@@ -10,6 +10,7 @@ import supervision as sv
 
 from football_tracker.config import PipelineConfig
 from football_tracker.pipeline import run_pipeline
+from football_tracker.pitch import PitchCalibration, PitchKeypoints, SoccerPitch
 
 
 class FakeDetector:
@@ -39,6 +40,49 @@ class FakeTracks:
         self.reset_count += 1
 
 
+class FakePitchDetector:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def detect(self, frame: np.ndarray) -> PitchKeypoints:
+        self.calls += 1
+        return PitchKeypoints.empty()
+
+
+class FakePitchCalibrator:
+    pitch = SoccerPitch()
+
+    def __init__(self) -> None:
+        self.invalidations = 0
+
+    def update(
+        self,
+        keypoints: PitchKeypoints,
+        *,
+        frame_size: tuple[int, int],
+    ) -> PitchCalibration:
+        width, height = frame_size
+        image_to_pitch = np.asarray(
+            [[self.pitch.length / width, 0, 0], [0, self.pitch.width / height, 0], [0, 0, 1]],
+            dtype=np.float64,
+        )
+        return PitchCalibration(
+            True,
+            image_to_pitch,
+            8,
+            8,
+            1.0,
+            1.0,
+            0.2,
+            0.3,
+            "trusted",
+        )
+
+    def invalidate(self, reason: str = "camera cut") -> PitchCalibration:
+        self.invalidations += 1
+        return PitchCalibration.unavailable(reason)
+
+
 def make_source_video(path: Path, *, fps: float = 12.5, frames: int = 8) -> None:
     writer = cv2.VideoWriter(
         str(path),
@@ -51,6 +95,21 @@ def make_source_video(path: Path, *, fps: float = 12.5, frames: int = 8) -> None
     for index in range(frames):
         frame = np.full((96, 160, 3), (20, 110 + index, 20), dtype=np.uint8)
         writer.write(frame)
+    writer.release()
+
+
+def make_cut_source_video(path: Path, *, fps: float = 12.5, frames: int = 8) -> None:
+    writer = cv2.VideoWriter(
+        str(path),
+        cv2.VideoWriter_fourcc(*"mp4v"),
+        fps,
+        (160, 96),
+    )
+    if not writer.isOpened():
+        raise RuntimeError("Test environment cannot create an mp4v video.")
+    for index in range(frames):
+        value = 15 if index < frames // 2 else 240
+        writer.write(np.full((96, 160, 3), value, dtype=np.uint8))
     writer.release()
 
 
@@ -84,6 +143,73 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(summary.frames_written, 8)
             self.assertEqual(summary.fps, 12.5)
             self.assertEqual(summary.unique_tracks, 1)
+
+    def test_appends_synchronized_tactical_panel_without_changing_timing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.mp4"
+            output = root / "tactical.mp4"
+            make_source_video(source)
+            pitch_detector = FakePitchDetector()
+
+            summary = run_pipeline(
+                PipelineConfig(
+                    input_path=source,
+                    output_path=output,
+                    reset_on_cut=False,
+                    classify_teams=False,
+                    pitch_panel_height=80,
+                ),
+                detector=FakeDetector(),
+                tracks=FakeTracks(),
+                pitch_detector=pitch_detector,
+                pitch_calibrator=FakePitchCalibrator(),
+                show_progress=False,
+            )
+
+            capture = cv2.VideoCapture(str(output))
+            output_frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+            output_fps = capture.get(cv2.CAP_PROP_FPS)
+            ok, first_frame = capture.read()
+            capture.release()
+
+        self.assertTrue(ok)
+        self.assertEqual(first_frame.shape[:2], (176, 160))
+        self.assertEqual(output_frames, 8)
+        self.assertAlmostEqual(output_fps, 12.5, places=2)
+        self.assertEqual(pitch_detector.calls, 8)
+        self.assertEqual(summary.pitch_trusted_frames, 8)
+        self.assertEqual(summary.pitch_unavailable_frames, 0)
+        self.assertEqual(summary.projected_positions, 8)
+
+    def test_camera_cut_invalidates_pitch_for_the_cut_frame(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.mp4"
+            output = root / "tactical.mp4"
+            make_cut_source_video(source)
+            pitch_detector = FakePitchDetector()
+            pitch_calibrator = FakePitchCalibrator()
+
+            summary = run_pipeline(
+                PipelineConfig(
+                    input_path=source,
+                    output_path=output,
+                    classify_teams=False,
+                    pitch_panel_height=80,
+                ),
+                detector=FakeDetector(),
+                tracks=FakeTracks(),
+                pitch_detector=pitch_detector,
+                pitch_calibrator=pitch_calibrator,
+                show_progress=False,
+            )
+
+        self.assertEqual(pitch_calibrator.invalidations, 1)
+        self.assertEqual(pitch_detector.calls, 7)
+        self.assertEqual(summary.pitch_trusted_frames, 7)
+        self.assertEqual(summary.pitch_unavailable_frames, 1)
+        self.assertEqual(summary.pitch_dropout_reasons, (("camera cut", 1),))
 
 
 if __name__ == "__main__":

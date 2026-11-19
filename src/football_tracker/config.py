@@ -30,6 +30,7 @@ class PipelineConfig:
     pitch_keypoint_confidence: float = 0.5
     pitch_minimum_keypoints: int = 6
     pitch_maximum_error: float = 10.0
+    pitch_panel_height: int | None = None
     codec: str = "mp4v"
 
     def validate(self) -> None:
@@ -68,6 +69,8 @@ class PipelineConfig:
             raise ValueError("Pitch calibration needs at least 4 keypoints.")
         if self.pitch_maximum_error <= 0:
             raise ValueError("Pitch maximum reprojection error must be positive.")
+        if self.pitch_panel_height is not None and self.pitch_panel_height < 80:
+            raise ValueError("Pitch panel height must be at least 80 pixels.")
         if len(self.codec) != 4:
             raise ValueError("Codec must be a four-character OpenCV FourCC value.")
 
