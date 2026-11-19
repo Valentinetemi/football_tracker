@@ -155,6 +155,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="minimum detected player height for OCR (default: 120)",
     )
     parser.add_argument(
+        "--track-ball",
+        action="store_true",
+        help="detect and conservatively track the checkpoint's ball class",
+    )
+    parser.add_argument(
+        "--ball-confidence",
+        type=float,
+        default=0.35,
+        help="minimum confidence for ball candidates (default: 0.35)",
+    )
+    parser.add_argument(
+        "--ball-minimum-hits",
+        type=int,
+        default=2,
+        help="consecutive detections required before showing the ball (default: 2)",
+    )
+    parser.add_argument(
+        "--ball-maximum-gap",
+        type=int,
+        default=8,
+        help="frames retaining hidden motion state after a missed ball (default: 8)",
+    )
+    parser.add_argument(
         "--codec",
         default="mp4v",
         help="four-character OpenCV output codec (default: mp4v)",
@@ -191,6 +214,10 @@ def config_from_args(args: argparse.Namespace) -> PipelineConfig:
         jersey_minimum_votes=args.jersey_minimum_votes,
         jersey_minimum_confidence=args.jersey_minimum_confidence,
         jersey_minimum_player_height=args.jersey_minimum_player_height,
+        track_ball=args.track_ball,
+        ball_confidence=args.ball_confidence,
+        ball_minimum_hits=args.ball_minimum_hits,
+        ball_maximum_gap=args.ball_maximum_gap,
         codec=args.codec,
     )
 

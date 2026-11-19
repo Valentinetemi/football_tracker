@@ -8,6 +8,8 @@ from typing import Any
 import numpy as np
 import supervision as sv
 
+from football_tracker.ball import BALL_CLASS_NAMES
+
 TRACKABLE_CLASS_NAMES = {
     "person",
     "player",
@@ -37,6 +39,16 @@ def infer_trackable_class_ids(names: Mapping[int, str] | Sequence[str]) -> tuple
     )
 
 
+def infer_ball_class_ids(names: Mapping[int, str] | Sequence[str]) -> tuple[int, ...]:
+    """Infer ball classes supported by the already-selected checkpoint."""
+    normalized = normalize_class_names(names)
+    return tuple(
+        class_id
+        for class_id, name in normalized.items()
+        if name.strip().lower() in BALL_CLASS_NAMES
+    )
+
+
 def resolve_device(requested: str) -> str:
     """Resolve ``auto`` to MPS, CUDA, or CPU in that order."""
     if requested != "auto":
@@ -62,6 +74,8 @@ class UltralyticsDetector:
         confidence: float,
         image_size: int,
         class_ids: tuple[int, ...] | None,
+        include_ball: bool = False,
+        ball_confidence: float | None = None,
         model: Any | None = None,
     ) -> None:
         if model is None:
@@ -74,11 +88,11 @@ class UltralyticsDetector:
 
         self.model = model
         self.device = resolve_device(device)
-        self.confidence = confidence
+        self.people_confidence = confidence
         self.image_size = image_size
         self.class_names = normalize_class_names(self.model.names)
-        self.class_ids = class_ids or infer_trackable_class_ids(self.class_names)
-        if not self.class_ids:
+        people_class_ids = class_ids or infer_trackable_class_ids(self.class_names)
+        if not people_class_ids:
             available = ", ".join(
                 f"{class_id}:{name}" for class_id, name in self.class_names.items()
             )
@@ -87,9 +101,22 @@ class UltralyticsDetector:
                 f"Pass --classes explicitly. Available classes: {available}"
             )
 
-        unknown = sorted(set(self.class_ids) - self.class_names.keys())
+        unknown = sorted(set(people_class_ids) - self.class_names.keys())
         if unknown:
             raise ValueError(f"Unknown model class IDs: {unknown}")
+
+        ball_class_ids = infer_ball_class_ids(self.class_names) if include_ball else ()
+        if include_ball and not ball_class_ids:
+            available = ", ".join(
+                f"{class_id}:{name}" for class_id, name in self.class_names.items()
+            )
+            raise ValueError(
+                "Ball tracking was requested, but the selected checkpoint has no ball class. "
+                f"Available classes: {available}"
+            )
+        self.ball_class_ids = ball_class_ids
+        self.class_ids = tuple(dict.fromkeys((*people_class_ids, *ball_class_ids)))
+        self.confidence = min(confidence, ball_confidence or confidence)
 
     def detect(self, frame: np.ndarray) -> sv.Detections:
         """Detect trackable people in one BGR frame."""

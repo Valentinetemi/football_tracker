@@ -87,6 +87,30 @@ class CliTests(unittest.TestCase):
         self.assertEqual(received[0].roster_path, roster_path)
         self.assertEqual(received[0].jersey_minimum_votes, 3)
 
+    def test_ball_tracking_is_opt_in(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            input_path = root / "clip.mp4"
+            input_path.touch()
+            received = []
+
+            exit_code = main(
+                [
+                    str(input_path),
+                    "--output",
+                    str(root / "tracked.mp4"),
+                    "--track-ball",
+                    "--ball-confidence",
+                    "0.4",
+                ],
+                runner=received.append,
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(received[0].track_ball)
+        self.assertEqual(received[0].ball_confidence, 0.4)
+        self.assertEqual(received[0].ball_minimum_hits, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

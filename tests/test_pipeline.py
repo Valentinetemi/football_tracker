@@ -28,6 +28,24 @@ class FakeDetector:
         return "person"
 
 
+class FakeBallDetector:
+    def detect(self, frame: np.ndarray) -> sv.Detections:
+        height, width = frame.shape[:2]
+        return sv.Detections(
+            xyxy=np.asarray(
+                [
+                    [width * 0.35, height * 0.2, width * 0.55, height * 0.9],
+                    [width * 0.1, height * 0.5, width * 0.13, height * 0.55],
+                ]
+            ),
+            confidence=np.asarray([0.9, 0.8]),
+            class_id=np.asarray([2, 0]),
+        )
+
+    def class_name(self, class_id: int) -> str:
+        return {0: "ball", 2: "player"}[class_id]
+
+
 class FakeTracks:
     segment = 1
     reset_count = 0
@@ -272,6 +290,36 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(summary.jersey_suggestions.suggested_tracks, 1)  # type: ignore[union-attr]
         self.assertEqual(summary.jersey_suggestions.unresolved_tracks, 0)  # type: ignore[union-attr]
         self.assertIn("2 accepted reads across 2 clear crops", str(summary))
+
+    def test_ball_tracking_is_opt_in_and_preserves_timing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.mp4"
+            output = root / "ball.mp4"
+            make_source_video(source)
+
+            summary = run_pipeline(
+                PipelineConfig(
+                    input_path=source,
+                    output_path=output,
+                    reset_on_cut=False,
+                    classify_teams=False,
+                    track_ball=True,
+                ),
+                detector=FakeBallDetector(),
+                tracks=FakeTracks(),
+                show_progress=False,
+            )
+
+            capture = cv2.VideoCapture(str(output))
+            output_frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+            output_fps = capture.get(cv2.CAP_PROP_FPS)
+            capture.release()
+
+        self.assertEqual(output_frames, 8)
+        self.assertAlmostEqual(output_fps, 12.5, places=2)
+        self.assertEqual(summary.ball_tracking.reliable_frames, 7)  # type: ignore[union-attr]
+        self.assertEqual(summary.ball_tracking.ambiguous_frames, 0)  # type: ignore[union-attr]
 
 
 if __name__ == "__main__":

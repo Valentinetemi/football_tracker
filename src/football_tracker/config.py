@@ -39,6 +39,11 @@ class PipelineConfig:
     jersey_minimum_confidence: float = 0.35
     jersey_minimum_player_height: int = 120
     jersey_minimum_sharpness: float = 20.0
+    track_ball: bool = False
+    ball_confidence: float = 0.35
+    ball_minimum_hits: int = 2
+    ball_maximum_gap: int = 8
+    ball_maximum_distance_ratio: float = 0.10
     codec: str = "mp4v"
 
     def validate(self) -> None:
@@ -95,6 +100,14 @@ class PipelineConfig:
             raise ValueError("Jersey minimum player height must be at least 24 pixels.")
         if self.jersey_minimum_sharpness < 0:
             raise ValueError("Jersey minimum sharpness cannot be negative.")
+        if not 0.0 < self.ball_confidence <= 1.0:
+            raise ValueError("Ball confidence must be between 0 and 1.")
+        if self.ball_minimum_hits < 1:
+            raise ValueError("Ball tracking needs at least 1 consecutive hit.")
+        if self.ball_maximum_gap < 1:
+            raise ValueError("Ball maximum gap must be at least 1 frame.")
+        if not 0.0 < self.ball_maximum_distance_ratio <= 1.0:
+            raise ValueError("Ball maximum distance ratio must be between 0 and 1.")
         if len(self.codec) != 4:
             raise ValueError("Codec must be a four-character OpenCV FourCC value.")
 

@@ -11,6 +11,11 @@ import supervision as sv
 from tqdm import tqdm
 
 from football_tracker.annotation import TrailStore, annotate_frame
+from football_tracker.ball import (
+    BallTracker,
+    BallTrackingSummary,
+    split_ball_detections,
+)
 from football_tracker.classification import (
     CalibrationReport,
     ShirtTeamClassifier,
@@ -86,6 +91,7 @@ class PipelineSummary:
     projected_positions: int
     pitch_dropout_reasons: tuple[tuple[str, int], ...]
     jersey_suggestions: JerseySuggestionSummary | None
+    ball_tracking: BallTrackingSummary | None
 
     def __str__(self) -> str:
         tracks = "unknown" if self.unique_tracks is None else str(self.unique_tracks)
@@ -111,6 +117,13 @@ class PipelineSummary:
                 f"{self.jersey_suggestions.clear_crops_sampled} clear crops; "
                 f"{self.jersey_suggestions.unresolved_tracks} unresolved."
             )
+        if self.ball_tracking is not None:
+            result += (
+                f" Ball visible on {self.ball_tracking.reliable_frames} frames; "
+                f"missed={self.ball_tracking.missed_frames}, "
+                f"ambiguous={self.ball_tracking.ambiguous_frames}, "
+                f"recoveries={self.ball_tracking.recoveries}."
+            )
         return result
 
 
@@ -120,6 +133,7 @@ def collect_team_features(
     *,
     frame_rate: float,
     sample_seconds: float,
+    minimum_confidence: float,
     show_progress: bool,
     maximum_samples: int = 600,
 ) -> list[np.ndarray]:
@@ -141,11 +155,19 @@ def collect_team_features(
                     continue
                 detections = detector.detect(frame)
                 if detections.class_id is not None:
-                    for box, class_id in zip(
+                    confidence = (
+                        detections.confidence
+                        if detections.confidence is not None
+                        else np.ones(len(detections), dtype=np.float32)
+                    )
+                    for box, class_id, score in zip(
                         detections.xyxy,
                         detections.class_id,
+                        confidence,
                         strict=True,
                     ):
+                        if float(score) < minimum_confidence:
+                            continue
                         if role_from_class_name(detector.class_name(int(class_id))) != "player":
                             continue
                         feature = extract_shirt_feature(frame, box)
@@ -168,6 +190,7 @@ def run_pipeline(
     pitch_detector: PitchDetector | None = None,
     pitch_calibrator: Calibrator | None = None,
     jersey_ocr: JerseyNumberOCR | None = None,
+    ball_tracker: BallTracker | None = None,
     show_progress: bool = True,
 ) -> PipelineSummary:
     """Process every decoded source frame once and write it at the source FPS."""
@@ -183,6 +206,8 @@ def run_pipeline(
                 confidence=config.confidence,
                 image_size=config.image_size,
                 class_ids=config.class_ids,
+                include_ball=config.track_ball,
+                ball_confidence=config.ball_confidence,
             )
 
     appearance_assigner = None
@@ -198,6 +223,7 @@ def run_pipeline(
                 detector,
                 frame_rate=metadata.fps,
                 sample_seconds=config.team_sample_seconds,
+                minimum_confidence=config.confidence,
                 show_progress=show_progress,
             )
             team_classifier.fit(features)
@@ -261,6 +287,13 @@ def run_pipeline(
             minimum_sharpness=config.jersey_minimum_sharpness,
         )
 
+    if config.track_ball and ball_tracker is None:
+        ball_tracker = BallTracker(
+            minimum_hits=config.ball_minimum_hits,
+            maximum_gap=config.ball_maximum_gap,
+            maximum_distance_ratio=config.ball_maximum_distance_ratio,
+        )
+
     with VideoReader(config.input_path) as reader:
         scene_detector = SceneChangeDetector(threshold=config.cut_threshold)
         trails = TrailStore()
@@ -277,9 +310,26 @@ def run_pipeline(
                         appearance_assigner.reset_tracks()
                     if jersey_engine is not None:
                         jersey_engine.reset_tracks()
+                    if ball_tracker is not None:
+                        ball_tracker.reset_for_camera_cut()
 
                 detections = detector.detect(frame)
-                tracked = tracks.update(detections)
+                if ball_tracker is not None:
+                    people, ball_candidates = split_ball_detections(
+                        detections,
+                        class_name=detector.class_name,
+                        people_confidence=config.confidence,
+                        ball_confidence=config.ball_confidence,
+                    )
+                    _ball_observation = ball_tracker.update(
+                        frame_index=frame_index,
+                        candidates=ball_candidates,
+                        frame_size=(metadata.width, metadata.height),
+                    )
+                else:
+                    people = detections
+                    _ball_observation = None
+                tracked = tracks.update(people)
                 assignments = (
                     appearance_assigner.assign(frame, tracked, detector.class_name)
                     if appearance_assigner is not None
@@ -358,4 +408,5 @@ def run_pipeline(
         projected_positions=projected_positions,
         pitch_dropout_reasons=tuple(sorted(pitch_dropout_counts.items())),
         jersey_suggestions=jersey_engine.summary() if jersey_engine is not None else None,
+        ball_tracking=ball_tracker.summary() if ball_tracker is not None else None,
     )
