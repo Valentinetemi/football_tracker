@@ -9,12 +9,14 @@ import numpy as np
 import supervision as sv
 
 from football_tracker.annotation import (
+    BALL_COLOR_BGR,
     GOALKEEPER_COLOR_BGR,
     REFEREE_COLOR_BGR,
     UNKNOWN_COLOR_BGR,
     assignment_color,
     track_color,
 )
+from football_tracker.ball import BallObservation
 from football_tracker.classification import EntityAssignment, role_from_class_name
 from football_tracker.identity import PlayerSuggestion
 from football_tracker.pitch import PitchCalibration, SoccerPitch
@@ -207,6 +209,7 @@ def render_tactical_panel(
     assignments: list[EntityAssignment] | None,
     class_name: Callable[[int], str],
     suggestions: list[PlayerSuggestion | None] | None = None,
+    ball: BallObservation | None = None,
 ) -> tuple[np.ndarray, int]:
     """Draw current-frame detections only; return panel and projected-dot count."""
     panel = np.full((height, width, 3), PANEL_BACKGROUND_BGR, dtype=np.uint8)
@@ -253,57 +256,73 @@ def render_tactical_panel(
         cv2.LINE_AA,
     )
 
-    if detections.tracker_id is None or len(detections) == 0:
-        return panel, 0
-    foot_points = np.column_stack(
-        (
-            (detections.xyxy[:, 0] + detections.xyxy[:, 2]) / 2,
-            detections.xyxy[:, 3],
-        )
-    ).astype(np.float32)
-    projected = calibration.project(foot_points)
-    finite = np.all(np.isfinite(projected), axis=1)
-    on_pitch = (
-        finite
-        & (projected[:, 0] >= 0)
-        & (projected[:, 0] <= pitch.length)
-        & (projected[:, 1] >= 0)
-        & (projected[:, 1] <= pitch.width)
-    )
-
     radius = max(5, round(height * 0.018))
     projected_count = 0
-    for index in np.flatnonzero(on_pitch):
-        track_id = int(detections.tracker_id[index])
-        if assignments is not None:
-            assignment = assignments[index]
-            color = assignment_color(assignment)
-            role = assignment.role
-        else:
-            color, role = _fallback_color_and_role(
-                detections,
-                int(index),
-                track_id,
-                class_name,
+    if detections.tracker_id is not None and len(detections) > 0:
+        foot_points = np.column_stack(
+            (
+                (detections.xyxy[:, 0] + detections.xyxy[:, 2]) / 2,
+                detections.xyxy[:, 3],
             )
-        center = _world_to_panel(
-            (float(projected[index, 0]), float(projected[index, 1])),
-            origin=origin,
-            scale=scale,
+        ).astype(np.float32)
+        projected = calibration.project(foot_points)
+        finite = np.all(np.isfinite(projected), axis=1)
+        on_pitch = (
+            finite
+            & (projected[:, 0] >= 0)
+            & (projected[:, 0] <= pitch.length)
+            & (projected[:, 1] >= 0)
+            & (projected[:, 1] <= pitch.width)
         )
-        suggestion = suggestions[index] if suggestions is not None else None
-        marker_label = f"T{track_id}"
-        if suggestion is not None:
-            marker_label += f" {suggestion.display_text}"
-        _draw_entity_marker(
-            panel,
-            center,
-            color=color,
-            role=role,
-            label=marker_label,
-            radius=radius,
-        )
-        projected_count += 1
+
+        for index in np.flatnonzero(on_pitch):
+            track_id = int(detections.tracker_id[index])
+            if assignments is not None:
+                assignment = assignments[index]
+                color = assignment_color(assignment)
+                role = assignment.role
+            else:
+                color, role = _fallback_color_and_role(
+                    detections,
+                    int(index),
+                    track_id,
+                    class_name,
+                )
+            center = _world_to_panel(
+                (float(projected[index, 0]), float(projected[index, 1])),
+                origin=origin,
+                scale=scale,
+            )
+            suggestion = suggestions[index] if suggestions is not None else None
+            marker_label = f"T{track_id}"
+            if suggestion is not None:
+                marker_label += f" {suggestion.display_text}"
+            _draw_entity_marker(
+                panel,
+                center,
+                color=color,
+                role=role,
+                label=marker_label,
+                radius=radius,
+            )
+            projected_count += 1
+
+    if ball is not None:
+        ball_point = np.asarray([ball.center], dtype=np.float32)
+        projected_ball = calibration.project(ball_point)[0]
+        if (
+            np.all(np.isfinite(projected_ball))
+            and 0 <= projected_ball[0] <= pitch.length
+            and 0 <= projected_ball[1] <= pitch.width
+        ):
+            ball_center = _world_to_panel(
+                (float(projected_ball[0]), float(projected_ball[1])),
+                origin=origin,
+                scale=scale,
+            )
+            ball_radius = max(4, round(radius * 0.7))
+            cv2.circle(panel, ball_center, ball_radius + 2, DOT_EDGE_BGR, -1, cv2.LINE_AA)
+            cv2.circle(panel, ball_center, ball_radius, BALL_COLOR_BGR, -1, cv2.LINE_AA)
     return panel, projected_count
 
 

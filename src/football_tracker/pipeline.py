@@ -321,14 +321,14 @@ def run_pipeline(
                         people_confidence=config.confidence,
                         ball_confidence=config.ball_confidence,
                     )
-                    _ball_observation = ball_tracker.update(
+                    ball_observation = ball_tracker.update(
                         frame_index=frame_index,
                         candidates=ball_candidates,
                         frame_size=(metadata.width, metadata.height),
                     )
                 else:
                     people = detections
-                    _ball_observation = None
+                    ball_observation = None
                 tracked = tracks.update(people)
                 assignments = (
                     appearance_assigner.assign(frame, tracked, detector.class_name)
@@ -352,6 +352,7 @@ def run_pipeline(
                     trails=trails,
                     assignments=assignments,
                     suggestions=suggestions,
+                    ball=ball_observation,
                     segment=tracks.segment,
                     camera_cut=reset_for_cut,
                     scene_score=scene_change.score,
@@ -377,6 +378,7 @@ def run_pipeline(
                         assignments=assignments,
                         class_name=detector.class_name,
                         suggestions=suggestions,
+                        ball=ball_observation,
                     )
                     if pitch_calibration.trusted:
                         pitch_trusted_frames += 1

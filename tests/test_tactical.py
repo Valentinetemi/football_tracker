@@ -5,6 +5,7 @@ import unittest
 import numpy as np
 import supervision as sv
 
+from football_tracker.ball import BallObservation
 from football_tracker.classification import EntityAssignment
 from football_tracker.identity import PlayerSuggestion
 from football_tracker.pitch import PitchCalibration, SoccerPitch
@@ -93,6 +94,40 @@ class TacticalRenderingTests(unittest.TestCase):
 
         self.assertEqual(panel.shape, (360, 1000, 3))
         self.assertEqual(count, 1)
+
+    def test_ball_requires_trusted_calibration_on_tactical_pitch(self) -> None:
+        ball = BallObservation((500.0, 300.0), (496.0, 296.0, 504.0, 304.0), 0.8)
+        arguments = {
+            "width": 1000,
+            "height": 360,
+            "pitch": SoccerPitch(),
+            "detections": sv.Detections.empty(),
+            "assignments": None,
+            "class_name": lambda _: "player",
+        }
+
+        without_ball, _ = render_tactical_panel(
+            calibration=trusted_calibration(),
+            **arguments,  # type: ignore[arg-type]
+        )
+        with_ball, count = render_tactical_panel(
+            calibration=trusted_calibration(),
+            ball=ball,
+            **arguments,  # type: ignore[arg-type]
+        )
+        untrusted_without, _ = render_tactical_panel(
+            calibration=PitchCalibration.unavailable("test dropout"),
+            **arguments,  # type: ignore[arg-type]
+        )
+        untrusted_with, _ = render_tactical_panel(
+            calibration=PitchCalibration.unavailable("test dropout"),
+            ball=ball,
+            **arguments,  # type: ignore[arg-type]
+        )
+
+        self.assertEqual(count, 0)
+        self.assertTrue(np.any(with_ball != without_ball))
+        np.testing.assert_array_equal(untrusted_with, untrusted_without)
 
     def test_stacks_pitch_beneath_replay(self) -> None:
         replay = np.zeros((96, 160, 3), dtype=np.uint8)

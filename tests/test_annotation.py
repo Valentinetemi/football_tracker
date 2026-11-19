@@ -2,7 +2,15 @@ from __future__ import annotations
 
 import unittest
 
-from football_tracker.annotation import build_track_label, place_label
+import numpy as np
+
+from football_tracker.annotation import (
+    BALL_COLOR_BGR,
+    build_track_label,
+    draw_ball_marker,
+    place_label,
+)
+from football_tracker.ball import BallObservation
 from football_tracker.classification import EntityAssignment
 from football_tracker.identity import PlayerSuggestion
 
@@ -30,6 +38,20 @@ class LabelLayoutTests(unittest.TestCase):
         self.assertGreaterEqual(label[1], 0)
         self.assertLessEqual(label[2], 120)
         self.assertLessEqual(label[3], 80)
+
+    def test_ball_marker_is_present_only_for_a_reliable_observation(self) -> None:
+        blank = np.zeros((100, 100, 3), dtype=np.uint8)
+        hidden = blank.copy()
+        visible = blank.copy()
+
+        draw_ball_marker(hidden, None)
+        draw_ball_marker(
+            visible,
+            BallObservation((50.0, 50.0), (47.0, 47.0, 53.0, 53.0), 0.8),
+        )
+
+        self.assertFalse(np.any(hidden))
+        self.assertEqual(tuple(int(value) for value in visible[50, 50]), BALL_COLOR_BGR)
 
 
 class IdentityLabelTests(unittest.TestCase):

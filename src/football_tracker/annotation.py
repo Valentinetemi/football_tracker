@@ -9,6 +9,7 @@ import cv2
 import numpy as np
 import supervision as sv
 
+from football_tracker.ball import BallObservation
 from football_tracker.classification import EntityAssignment
 from football_tracker.identity import PlayerSuggestion
 
@@ -26,6 +27,8 @@ TEAM_COLORS_BGR = ((230, 125, 55), (70, 80, 245))
 UNKNOWN_COLOR_BGR = (150, 150, 150)
 REFEREE_COLOR_BGR = (40, 220, 245)
 GOALKEEPER_COLOR_BGR = (210, 85, 210)
+BALL_COLOR_BGR = (80, 245, 255)
+BALL_EDGE_BGR = (20, 20, 20)
 
 
 def track_color(track_id: int) -> tuple[int, int, int]:
@@ -160,6 +163,19 @@ def build_track_label(
     return f"T{track_id} {suffix}".rstrip()
 
 
+def draw_ball_marker(frame: np.ndarray, observation: BallObservation | None) -> None:
+    """Draw a compact high-contrast marker only around a measured ball center."""
+    if observation is None:
+        return
+    center = (round(observation.center[0]), round(observation.center[1]))
+    box_width = observation.box[2] - observation.box[0]
+    box_height = observation.box[3] - observation.box[1]
+    radius = int(np.clip(round(max(box_width, box_height) * 0.75), 5, 12))
+    cv2.circle(frame, center, radius + 2, BALL_EDGE_BGR, 2, cv2.LINE_AA)
+    cv2.circle(frame, center, radius, BALL_COLOR_BGR, 2, cv2.LINE_AA)
+    cv2.circle(frame, center, 2, BALL_COLOR_BGR, -1, cv2.LINE_AA)
+
+
 def annotate_frame(
     frame: np.ndarray,
     detections: sv.Detections,
@@ -168,6 +184,7 @@ def annotate_frame(
     trails: TrailStore,
     assignments: list[EntityAssignment] | None,
     suggestions: list[PlayerSuggestion | None] | None,
+    ball: BallObservation | None,
     segment: int,
     camera_cut: bool,
     scene_score: float,
@@ -248,6 +265,8 @@ def annotate_frame(
                 1,
                 cv2.LINE_AA,
             )
+
+    draw_ball_marker(annotated, ball)
 
     status = f"segment {segment} | visible tracks {len(detections)}"
     cv2.putText(
