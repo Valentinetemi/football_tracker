@@ -4,8 +4,10 @@ An understandable, offline-first football video analysis project. The current CL
 local match clip, detects visible players and officials, assigns ByteTrack IDs, classifies
 outfield shirt appearance into two anonymous teams, calibrates wide broadcast views from
 pitch landmarks, and writes an annotated MP4 with a synchronized tactical pitch underneath.
+With an optional roster, it also makes conservative, explicitly tentative player-name
+suggestions from repeated jersey-number reads.
 
-This repository contains the first four milestones of a one-week demo build started on
+This repository contains the first five milestones of a one-week demo build started on
 18 November 2026. Track IDs such as `T7` are temporary tracker IDs, **not real player
 identities**.
 
@@ -21,6 +23,7 @@ identities**.
 | Team shirt classification and team colours | Working baseline with explicit uncertainty |
 | Goalkeeper/referee treatment | Separate role colours; goalkeepers are not forced into an outfield-shirt cluster |
 | Pitch calibration and tactical view | Working wide-shot baseline with per-frame trust gates |
+| Jersey number / roster suggestions | Optional EasyOCR baseline; multi-frame consensus, roster-backed, and deliberately abstains on distant footage |
 | Ball, possession, speed, distance, and spacing | Not available yet |
 | Dashboard | Deliberately deferred until the video pipeline is reliable |
 
@@ -51,6 +54,10 @@ goalkeepers, and uncertain tracks receive separate labels and colours. Track IDs
 - Output is written to a temporary file and atomically moved into place only after success.
 - Labels use a greedy nearby-placement pass to reduce collisions. Dense groups can still
   overlap; this is a readability baseline, not a full label-layout solver.
+- **EasyOCR** is an optional, replaceable scene-text baseline. It only sees sharp central-
+  torso crops from sufficiently large outfield-player tracks. A name is suggested only after
+  at least three accepted reads agree and the exact `(team-a|team-b, number)` roster entry
+  exists. Soccer-specific OCR is a future upgrade, not hidden behind this baseline.
 
 See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for credits and licence notes. The
 design is informed by the
@@ -78,6 +85,16 @@ mkdir -p inputs outputs models
 
 The first Ultralytics run may download model weights. Models, input videos, output videos,
 caches, and local environments are ignored by Git.
+
+Install the OCR extra only if you plan to pass `--roster`:
+
+```bash
+python -m pip install -e '.[ocr]'
+```
+
+The first roster run downloads EasyOCR weights into `models/easyocr/`. YOLO remains on MPS;
+the EasyOCR 1.7 baseline runs on CPU on Apple Silicon because its MPS path was not stable in
+verification.
 
 ### Quick start with the small generic model
 
@@ -159,6 +176,53 @@ The cluster letters are stable within one run but have no semantic home/away mea
 sampling and abstention with `--team-sample-seconds` and `--team-confidence`, or disable the
 calibration pass with `--no-team-classification`.
 
+### Optional roster and tentative name suggestions
+
+First run the clip without a roster and inspect which real club the shirt classifier called
+`team-a` and `team-b`. Then create a CSV with that **explicit anonymous-team mapping**. The
+same shirt number can safely occur once for each opposing team:
+
+```csv
+team,number,name
+team-a,10,Ada Example
+team-a,14,Alex Example
+team-b,10,Bea Example
+team-b,7,Ben Example
+```
+
+Run the same replay command with the roster:
+
+```bash
+PYTORCH_ENABLE_MPS_FALLBACK=1 football-tracker \
+  inputs/match.mp4 \
+  --output outputs/match-roster-replay.mp4 \
+  --model models/football-player-detection.pt \
+  --pitch-model models/football-pitch-detection.pt \
+  --roster inputs/roster.csv \
+  --device mps \
+  --image-size 960
+```
+
+Without `--roster`, the existing replay path is unchanged and EasyOCR is not imported or
+loaded. With a roster, an unresolved outfield player is labelled only with the temporary ID,
+such as `T7`. A consensus match is shown as a suggestion, such as `T7 Alex Example?`, on both
+the footage and tactical pitch. The question mark is intentional: this is not a confirmed
+identity. Referees and goalkeepers retain their separate role labels and colours.
+
+The default gate samples a track every five frames, rejects detected players shorter than
+120 pixels or blurred torso crops, and requires three compatible accepted OCR reads with at
+least 75% support. An unknown team, conflicting reads, a number absent from that team's
+roster, or weak image evidence produces no name. A camera cut clears every track's number
+evidence, so post-cut suggestions must be earned again. `--jersey-sample-interval`,
+`--jersey-minimum-votes`, `--jersey-minimum-confidence`, and
+`--jersey-minimum-player-height` expose the main validation controls.
+
+General-purpose OCR is not expected to recover tiny broadcast digits reliably. For useful
+evaluation footage, record or obtain 1080p/4K medium or close broadcast shots where at least
+two players are back-facing for several sharp frames and each torso/number occupies tens of
+pixels. Keep the actual match roster alongside the clip. A future SoccerNet/PARSeq-style
+tracklet model can replace `JerseyNumberOCR` without changing the replay pipeline.
+
 Use `football-tracker --help` for confidence, tracker buffer, camera-cut, class, device, and
 codec options. If MPS is unavailable, use `--device cpu`; it will be slower.
 
@@ -197,6 +261,7 @@ src/football_tracker/
   cli.py          argument parsing and early validation
   detection.py    Ultralytics adapter and football-class inference
   classification.py  shirt features, uncertainty-aware clustering, and track smoothing
+  identity.py     roster validation, jersey crops, replaceable OCR, and track consensus
   pitch.py        pitch geometry, landmark adapter, RANSAC fit, and quality gates
   tactical.py     top-down pitch, role markers, and vertical replay composition
   scene.py        camera-cut score
@@ -213,10 +278,12 @@ tests/            unit tests plus a generated-video MP4 integration test
 2. **18 Nov — complete:** uncertainty-aware shirt classification and separate role handling.
 3. **19 Nov — complete:** pitch landmarks, per-frame homography gates, and cut invalidation.
 4. **19 Nov — complete:** synchronized pitch using only visible, calibrated foot positions.
-5. **22 Nov:** ball detector/tracker and uncertainty-aware estimated possession.
-6. **23 Nov:** validation clips, ID/calibration quality gates, then speed/distance/spacing only
+5. **19 Nov — baseline complete:** optional jersey OCR and tentative roster suggestions;
+   readable close-shot validation footage is still required.
+6. **22 Nov:** ball detector/tracker and uncertainty-aware estimated possession.
+7. **23 Nov:** validation clips, ID/calibration quality gates, then speed/distance/spacing only
    where metric calibration supports them.
-7. **24 Nov:** demo polish and a small dashboard after the annotated video remains reliable.
+8. **24 Nov:** demo polish and a small dashboard after the annotated video remains reliable.
 
 No tactical position will be fabricated outside the camera view. Statistics will be marked
 unavailable when detection, tracking, or calibration quality is insufficient.

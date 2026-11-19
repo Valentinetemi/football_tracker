@@ -322,3 +322,80 @@ projected foot falls outside the pitch bounds.
 - Added coverage includes synthetic homography recovery, landmark/coverage rejection, explicit
   cut invalidation, current-frame-only projection, role-aware tactical markers, vertical frame
   composition, and preservation of source frame count and FPS when the panel is enabled.
+
+## Jersey-number and roster suggestions — 19 November 2026
+
+The optional roster was built from
+[FC Bayern's official lineup](https://fcbayern.com/en/matches/profis/bundesliga/2020-2021/vfb-stuttgart-fc-bayern-muenchen-28-11-2020/lineup)
+for the 28 November 2020 Stuttgart–Bayern match. Visual shirt classification maps Stuttgart's
+white kit to `team-a`
+and Bayern's red kit to `team-b`. The matching CSV included both teams' starting numbers;
+overlapping numbers 1, 5, 7, 8, and 24 intentionally map to different names by team.
+
+The optional EasyOCR 1.7.2 extra was installed only in the temporary verification environment.
+Its automatic model download failed because that Python installation lacked a usable CA chain,
+so the two official EasyOCR release archives were downloaded with certificate-checking `curl`.
+The extracted weight MD5 values matched EasyOCR's published configuration. No weights, roster,
+clip, or generated video were added to Git.
+
+EasyOCR initialization with `gpu="mps"` reproducibly exited with code 139 before tracking.
+The adapter now uses quantized CPU OCR when the main detector device is MPS; YOLO and pitch
+inference remain on MPS. A standalone initialization and the two real replay runs below then
+completed.
+
+### Six-second wide pan
+
+The roster-enabled version of the existing wide-pan command added:
+
+```bash
+--roster /private/tmp/stuttgart-bayern-roster.csv \
+--jersey-model-directory /private/tmp/football_tracker_easyocr_models
+```
+
+Observed result:
+
+```text
+Wrote 150 frames at 25.000 FPS to outputs/jersey-wide-pan-6s.mp4 (26 tracks, 0 camera-cut resets). Team classification ready (goalkeeper/unknown=1, referee=3, team-a=10, team-b=12). Pitch calibration trusted on 150/150 frames with 3259 visible positions projected. Jersey suggestions: 0 tracks from 0 accepted reads; 22 unresolved.
+```
+
+Output metadata remained 1920×1490, 150 frames, 25 FPS, and 6.000 seconds. Frame 75 was
+inspected: outfield labels showed only `T` IDs on both views, while referees retained their
+role label. No name was silently guessed.
+
+### Four-second cut fixture
+
+A 100-frame fixture containing two seconds before and two seconds after the already documented
+constructed cut was run with the same roster, OCR, detector, and pitch model. Observed result:
+
+```text
+Wrote 100 frames at 25.000 FPS to outputs/jersey-cut-4s.mp4 (46 tracks, 1 camera-cut resets). Team classification ready (goalkeeper/unknown=1, referee=5, team-a=20, team-b=20). Pitch calibration trusted on 99/100 frames with 2131 visible positions projected. Jersey suggestions: 0 tracks from 0 accepted reads across 0 clear crops; 40 unresolved.
+```
+
+Output metadata remained 1920×1490, 100 frames, 25 FPS, and 4.000 seconds. Frames 49, 50,
+51, and 60 were inspected. The cut frame had no tracks or tactical dots, the next frame still
+had no confirmed tracks, and newly acquired segment-2 IDs appeared later with no carried name
+evidence. Unit coverage separately proves that even a pre-cut three-vote suggestion needs
+three fresh compatible reads on a new post-cut track.
+
+### Honest recognition result
+
+- Correct suggestions: **0**.
+- Wrong suggestions: **0**, because the system abstained; this is not an accuracy claim.
+- Unresolved outfield tracks: **22** in the wide pan and **40** across the two cut segments.
+- Accepted number reads: **0** in both real runs.
+
+Detector measurements on representative frames found player boxes roughly 49–131 pixels tall.
+The number itself occupies only a small fraction of those pixels and is often front-facing,
+blurred, or occluded. A few single-frame shapes look number-like to a human at full resolution,
+but the current footage does not contain two numbers readable consistently across several
+clear track crops. It therefore cannot satisfy the requested two-player recognition test, and
+claiming correct names from it would be misleading.
+
+The needed follow-up footage is 1080p or 4K medium/close action with at least two known players
+back-facing for several consecutive sharp frames, limited occlusion, and torso/number regions
+that occupy tens of pixels, plus the actual roster. The current EasyOCR adapter is a baseline;
+a soccer-specific tracklet recognizer should be evaluated on that footage before relying on
+name suggestions.
+
+At the end of this milestone, all **47 tests** passed and `ruff check src tests` reported no
+issues. The generated six-second pan and four-second cut MP4s also decoded fully with FFmpeg.
