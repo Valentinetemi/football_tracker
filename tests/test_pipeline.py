@@ -8,7 +8,9 @@ import cv2
 import numpy as np
 import supervision as sv
 
+from football_tracker.classification import CalibrationReport, TeamPrediction
 from football_tracker.config import PipelineConfig
+from football_tracker.identity import JerseyRead
 from football_tracker.pipeline import run_pipeline
 from football_tracker.pitch import PitchCalibration, PitchKeypoints, SoccerPitch
 
@@ -81,6 +83,23 @@ class FakePitchCalibrator:
     def invalidate(self, reason: str = "camera cut") -> PitchCalibration:
         self.invalidations += 1
         return PitchCalibration.unavailable(reason)
+
+
+class ConstantTeamClassifier:
+    report = CalibrationReport(True, 20, (10, 10), 0.5, "ready")
+
+    def predict(self, frame: np.ndarray, box: np.ndarray) -> TeamPrediction:
+        return TeamPrediction(0, 0.9, "test")
+
+
+class ConstantJerseyOCR:
+    def __init__(self, number: int) -> None:
+        self.number = number
+        self.calls = 0
+
+    def read(self, crop: np.ndarray) -> JerseyRead:
+        self.calls += 1
+        return JerseyRead(self.number, 0.9, str(self.number))
 
 
 def make_source_video(path: Path, *, fps: float = 12.5, frames: int = 8) -> None:
@@ -210,6 +229,48 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(summary.pitch_trusted_frames, 7)
         self.assertEqual(summary.pitch_unavailable_frames, 1)
         self.assertEqual(summary.pitch_dropout_reasons, (("camera cut", 1),))
+
+    def test_roster_suggestion_is_opt_in_and_does_not_change_timing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.mp4"
+            output = root / "identity.mp4"
+            roster = root / "roster.csv"
+            make_source_video(source)
+            roster.write_text(
+                "team,number,name\nteam-a,10,Ada\nteam-b,10,Bea\n",
+                encoding="utf-8",
+            )
+            ocr = ConstantJerseyOCR(10)
+
+            summary = run_pipeline(
+                PipelineConfig(
+                    input_path=source,
+                    output_path=output,
+                    reset_on_cut=False,
+                    roster_path=roster,
+                    jersey_sample_interval=1,
+                    jersey_minimum_votes=2,
+                    jersey_minimum_player_height=24,
+                    jersey_minimum_sharpness=0,
+                ),
+                detector=FakeDetector(),
+                tracks=FakeTracks(),
+                team_classifier=ConstantTeamClassifier(),  # type: ignore[arg-type]
+                jersey_ocr=ocr,
+                show_progress=False,
+            )
+
+            capture = cv2.VideoCapture(str(output))
+            output_frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+            output_fps = capture.get(cv2.CAP_PROP_FPS)
+            capture.release()
+
+        self.assertEqual(output_frames, 8)
+        self.assertAlmostEqual(output_fps, 12.5, places=2)
+        self.assertEqual(ocr.calls, 2)
+        self.assertEqual(summary.jersey_suggestions.suggested_tracks, 1)  # type: ignore[union-attr]
+        self.assertEqual(summary.jersey_suggestions.unresolved_tracks, 0)  # type: ignore[union-attr]
 
 
 if __name__ == "__main__":

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import unittest
 
-from football_tracker.annotation import place_label
+from football_tracker.annotation import build_track_label, place_label
+from football_tracker.classification import EntityAssignment
+from football_tracker.identity import PlayerSuggestion
 
 
 def overlaps(first: tuple[int, int, int, int], second: tuple[int, int, int, int]) -> bool:
@@ -28,6 +30,55 @@ class LabelLayoutTests(unittest.TestCase):
         self.assertGreaterEqual(label[1], 0)
         self.assertLessEqual(label[2], 120)
         self.assertLessEqual(label[3], 80)
+
+
+class IdentityLabelTests(unittest.TestCase):
+    def test_existing_team_label_is_unchanged_without_roster(self) -> None:
+        assignment = EntityAssignment("player", 0, "team-a", 0.9, "test")
+
+        label = build_track_label(
+            7,
+            object_name="team-a",
+            assignment=assignment,
+            suggestion=None,
+            roster_enabled=False,
+        )
+
+        self.assertEqual(label, "T7 team-a")
+
+    def test_roster_mode_shows_only_id_until_suggestion_is_strong(self) -> None:
+        assignment = EntityAssignment("player", 0, "team-a", 0.9, "test")
+
+        unresolved = build_track_label(
+            7,
+            object_name="team-a",
+            assignment=assignment,
+            suggestion=None,
+            roster_enabled=True,
+        )
+        resolved = build_track_label(
+            7,
+            object_name="team-a",
+            assignment=assignment,
+            suggestion=PlayerSuggestion(7, "team-a", 10, "Ada", 0.8, 3, 3),
+            roster_enabled=True,
+        )
+
+        self.assertEqual(unresolved, "T7")
+        self.assertEqual(resolved, "T7 Ada?")
+
+    def test_official_role_remains_explicit_in_roster_mode(self) -> None:
+        assignment = EntityAssignment("referee", None, "referee", 1.0, "test")
+
+        label = build_track_label(
+            9,
+            object_name="referee",
+            assignment=assignment,
+            suggestion=None,
+            roster_enabled=True,
+        )
+
+        self.assertEqual(label, "T9 referee")
 
 
 if __name__ == "__main__":

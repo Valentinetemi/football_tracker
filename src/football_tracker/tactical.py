@@ -16,6 +16,7 @@ from football_tracker.annotation import (
     track_color,
 )
 from football_tracker.classification import EntityAssignment, role_from_class_name
+from football_tracker.identity import PlayerSuggestion
 from football_tracker.pitch import PitchCalibration, SoccerPitch
 
 PANEL_BACKGROUND_BGR = (24, 31, 27)
@@ -148,7 +149,7 @@ def _draw_entity_marker(
     *,
     color: tuple[int, int, int],
     role: str,
-    track_id: int,
+    label: str,
     radius: int,
 ) -> None:
     if role == "referee":
@@ -186,7 +187,7 @@ def _draw_entity_marker(
 
     cv2.putText(
         panel,
-        f"T{track_id}",
+        label,
         (center[0] + radius + 3, center[1] - radius - 1),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.35,
@@ -205,6 +206,7 @@ def render_tactical_panel(
     detections: sv.Detections,
     assignments: list[EntityAssignment] | None,
     class_name: Callable[[int], str],
+    suggestions: list[PlayerSuggestion | None] | None = None,
 ) -> tuple[np.ndarray, int]:
     """Draw current-frame detections only; return panel and projected-dot count."""
     panel = np.full((height, width, 3), PANEL_BACKGROUND_BGR, dtype=np.uint8)
@@ -289,12 +291,16 @@ def render_tactical_panel(
             origin=origin,
             scale=scale,
         )
+        suggestion = suggestions[index] if suggestions is not None else None
+        marker_label = f"T{track_id}"
+        if suggestion is not None:
+            marker_label += f" {suggestion.display_text}"
         _draw_entity_marker(
             panel,
             center,
             color=color,
             role=role,
-            track_id=track_id,
+            label=marker_label,
             radius=radius,
         )
         projected_count += 1

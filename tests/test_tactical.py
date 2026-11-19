@@ -6,6 +6,7 @@ import numpy as np
 import supervision as sv
 
 from football_tracker.classification import EntityAssignment
+from football_tracker.identity import PlayerSuggestion
 from football_tracker.pitch import PitchCalibration, SoccerPitch
 from football_tracker.tactical import render_tactical_panel, stack_replay
 
@@ -69,6 +70,29 @@ class TacticalRenderingTests(unittest.TestCase):
         )
 
         self.assertEqual(count, 0)
+
+    def test_accepts_roster_suggestion_for_tactical_marker(self) -> None:
+        detections = sv.Detections(
+            xyxy=np.asarray([[100, 100, 140, 240]], dtype=np.float32),
+            class_id=np.asarray([2]),
+            tracker_id=np.asarray([7]),
+        )
+        assignments = [EntityAssignment("player", 0, "team-a", 0.9, "test")]
+        suggestions = [PlayerSuggestion(7, "team-a", 10, "Ada", 0.8, 3, 3)]
+
+        panel, count = render_tactical_panel(
+            width=1000,
+            height=360,
+            pitch=SoccerPitch(),
+            calibration=trusted_calibration(),
+            detections=detections,
+            assignments=assignments,
+            class_name=lambda _: "player",
+            suggestions=suggestions,
+        )
+
+        self.assertEqual(panel.shape, (360, 1000, 3))
+        self.assertEqual(count, 1)
 
     def test_stacks_pitch_beneath_replay(self) -> None:
         replay = np.zeros((96, 160, 3), dtype=np.uint8)

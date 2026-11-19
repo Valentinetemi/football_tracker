@@ -20,6 +20,13 @@ from football_tracker.classification import (
 )
 from football_tracker.config import PipelineConfig
 from football_tracker.detection import UltralyticsDetector
+from football_tracker.identity import (
+    EasyOCRJerseyNumberOCR,
+    JerseyNumberOCR,
+    JerseySuggestionEngine,
+    JerseySuggestionSummary,
+    Roster,
+)
 from football_tracker.pitch import (
     PitchCalibration,
     PitchCalibrator,
@@ -78,6 +85,7 @@ class PipelineSummary:
     pitch_unavailable_frames: int
     projected_positions: int
     pitch_dropout_reasons: tuple[tuple[str, int], ...]
+    jersey_suggestions: JerseySuggestionSummary | None
 
     def __str__(self) -> str:
         tracks = "unknown" if self.unique_tracks is None else str(self.unique_tracks)
@@ -95,6 +103,12 @@ class PipelineSummary:
             result += (
                 f" Pitch calibration trusted on {self.pitch_trusted_frames}/{pitch_frames} "
                 f"frames with {self.projected_positions} visible positions projected."
+            )
+        if self.jersey_suggestions is not None:
+            result += (
+                f" Jersey suggestions: {self.jersey_suggestions.suggested_tracks} tracks "
+                f"from {self.jersey_suggestions.accepted_reads} accepted reads; "
+                f"{self.jersey_suggestions.unresolved_tracks} unresolved."
             )
         return result
 
@@ -152,6 +166,7 @@ def run_pipeline(
     team_classifier: ShirtTeamClassifier | None = None,
     pitch_detector: PitchDetector | None = None,
     pitch_calibrator: Calibrator | None = None,
+    jersey_ocr: JerseyNumberOCR | None = None,
     show_progress: bool = True,
 ) -> PipelineSummary:
     """Process every decoded source frame once and write it at the source FPS."""
@@ -227,13 +242,31 @@ def run_pipeline(
     projected_positions = 0
     pitch_dropout_counts: dict[str, int] = {}
 
+    jersey_engine = None
+    if config.roster_path is not None:
+        roster = Roster.from_csv(config.roster_path)
+        if jersey_ocr is None:
+            jersey_ocr = EasyOCRJerseyNumberOCR(
+                device=config.device,
+                model_directory=config.jersey_model_directory,
+            )
+        jersey_engine = JerseySuggestionEngine(
+            roster,
+            jersey_ocr,
+            sample_interval=config.jersey_sample_interval,
+            minimum_votes=config.jersey_minimum_votes,
+            minimum_ocr_confidence=config.jersey_minimum_confidence,
+            minimum_player_height=config.jersey_minimum_player_height,
+            minimum_sharpness=config.jersey_minimum_sharpness,
+        )
+
     with VideoReader(config.input_path) as reader:
         scene_detector = SceneChangeDetector(threshold=config.cut_threshold)
         trails = TrailStore()
         total = metadata.reported_frame_count or None
         progress = tqdm(total=total, desc="tracking", unit="frame", disable=not show_progress)
         with progress, VideoWriter(config.output_path, output_metadata, config.codec) as writer:
-            for _, frame in reader:
+            for frame_index, frame in reader:
                 scene_change = scene_detector.update(frame)
                 reset_for_cut = config.reset_on_cut and scene_change.is_cut
                 if reset_for_cut:
@@ -241,6 +274,8 @@ def run_pipeline(
                     trails.reset()
                     if appearance_assigner is not None:
                         appearance_assigner.reset_tracks()
+                    if jersey_engine is not None:
+                        jersey_engine.reset_tracks()
 
                 detections = detector.detect(frame)
                 tracked = tracks.update(detections)
@@ -249,12 +284,23 @@ def run_pipeline(
                     if appearance_assigner is not None
                     else None
                 )
+                suggestions = (
+                    jersey_engine.update(
+                        frame_index=frame_index,
+                        frame=frame,
+                        detections=tracked,
+                        assignments=assignments,
+                    )
+                    if jersey_engine is not None
+                    else None
+                )
                 annotated = annotate_frame(
                     frame,
                     tracked,
                     class_name=detector.class_name,
                     trails=trails,
                     assignments=assignments,
+                    suggestions=suggestions,
                     segment=tracks.segment,
                     camera_cut=reset_for_cut,
                     scene_score=scene_change.score,
@@ -279,6 +325,7 @@ def run_pipeline(
                         detections=tracked,
                         assignments=assignments,
                         class_name=detector.class_name,
+                        suggestions=suggestions,
                     )
                     if pitch_calibration.trusted:
                         pitch_trusted_frames += 1
@@ -309,4 +356,5 @@ def run_pipeline(
         pitch_unavailable_frames=pitch_unavailable_frames,
         projected_positions=projected_positions,
         pitch_dropout_reasons=tuple(sorted(pitch_dropout_counts.items())),
+        jersey_suggestions=jersey_engine.summary() if jersey_engine is not None else None,
     )

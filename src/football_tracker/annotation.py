@@ -10,6 +10,7 @@ import numpy as np
 import supervision as sv
 
 from football_tracker.classification import EntityAssignment
+from football_tracker.identity import PlayerSuggestion
 
 TRACK_COLORS_BGR = (
     (90, 220, 255),
@@ -137,6 +138,28 @@ def place_label(
     return min(candidates, key=score)
 
 
+def build_track_label(
+    track_id: int,
+    *,
+    object_name: str,
+    assignment: EntityAssignment | None,
+    suggestion: PlayerSuggestion | None,
+    roster_enabled: bool,
+) -> str:
+    """Keep roster-mode identity output explicitly tentative and fail closed."""
+    if not roster_enabled or assignment is None:
+        suffix = object_name
+    elif assignment.role == "player":
+        suffix = suggestion.display_text if suggestion is not None else ""
+    elif assignment.role == "goalkeeper":
+        suffix = "goalkeeper"
+    elif assignment.role == "referee":
+        suffix = "referee"
+    else:
+        suffix = ""
+    return f"T{track_id} {suffix}".rstrip()
+
+
 def annotate_frame(
     frame: np.ndarray,
     detections: sv.Detections,
@@ -144,6 +167,7 @@ def annotate_frame(
     class_name: Callable[[int], str],
     trails: TrailStore,
     assignments: list[EntityAssignment] | None,
+    suggestions: list[PlayerSuggestion | None] | None,
     segment: int,
     camera_cut: bool,
     scene_score: float,
@@ -187,7 +211,14 @@ def annotate_frame(
                 object_name = (
                     class_name(int(class_ids[index])) if class_ids is not None else "person"
                 )
-            label = f"T{track_id} {object_name}"
+            suggestion = suggestions[index] if suggestions is not None else None
+            label = build_track_label(
+                track_id,
+                object_name=object_name,
+                assignment=assignments[index] if assignments is not None else None,
+                suggestion=suggestion,
+                roster_enabled=suggestions is not None,
+            )
             (text_width, text_height), baseline = cv2.getTextSize(
                 label, cv2.FONT_HERSHEY_SIMPLEX, 0.46, 1
             )

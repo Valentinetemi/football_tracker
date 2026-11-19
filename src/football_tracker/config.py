@@ -81,6 +81,8 @@ class PipelineConfig:
             raise ValueError("Pitch panel height must be at least 80 pixels.")
         if self.roster_path is not None and not self.roster_path.is_file():
             raise ValueError(f"Roster CSV does not exist: {self.roster_path}")
+        if self.roster_path is not None and not self.classify_teams:
+            raise ValueError("Roster suggestions require team classification.")
         if self.jersey_ocr_backend != "easyocr":
             raise ValueError("Jersey OCR backend must be 'easyocr'.")
         if self.jersey_sample_interval < 1:
