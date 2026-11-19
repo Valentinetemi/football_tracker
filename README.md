@@ -2,10 +2,10 @@
 
 An understandable, offline-first football video analysis project. The current CLI reads a
 local match clip, detects visible players and officials, assigns ByteTrack IDs, classifies
-outfield shirt appearance into two anonymous teams, draws short image-space movement trails,
-and writes an annotated MP4 with one output frame per decoded input frame.
+outfield shirt appearance into two anonymous teams, calibrates wide broadcast views from
+pitch landmarks, and writes an annotated MP4 with a synchronized tactical pitch underneath.
 
-This repository contains the first two milestones of a one-week demo build started on
+This repository contains the first four milestones of a one-week demo build started on
 18 November 2026. Track IDs such as `T7` are temporary tracker IDs, **not real player
 identities**.
 
@@ -20,7 +20,7 @@ identities**.
 | MP4 export at source resolution and nominal FPS | Working for constant-frame-rate input |
 | Team shirt classification and team colours | Working baseline with explicit uncertainty |
 | Goalkeeper/referee treatment | Separate role colours; goalkeepers are not forced into an outfield-shirt cluster |
-| Pitch calibration and tactical view | Not implemented yet |
+| Pitch calibration and tactical view | Working wide-shot baseline with per-frame trust gates |
 | Ball, possession, speed, distance, and spacing | Not available yet |
 | Dashboard | Deliberately deferred until the video pipeline is reliable |
 
@@ -42,6 +42,12 @@ goalkeepers, and uncertain tracks receive separate labels and colours. Track IDs
   want to require it.
 - A camera cut clears ByteTrack motion state and starts a new segment. Display IDs remain
   globally unique, so an ID is never silently reused for a different person after the cut.
+- A second pretrained **pitch-landmark YOLO model** locates 32 indexed markings. OpenCV
+  RANSAC fits a fresh image-to-pitch homography on every frame, so a pan updates rather than
+  reusing stale geometry.
+- Calibration is accepted only when landmark confidence, inlier agreement, image/pitch
+  coverage, and pixel reprojection error pass. Failed frames show an empty tactical pitch
+  with the reason; a cut is always invalid for that frame.
 - Output is written to a temporary file and atomically moved into place only after success.
 - Labels use a greedy nearby-placement pass to reduce collisions. Dense groups can still
   overlap; this is a readability baseline, not a full label-layout solver.
@@ -112,6 +118,29 @@ For that checkpoint, the CLI automatically selects `goalkeeper`, `player`, and `
 and excludes `ball`. Use `--classes 1,2,3` only if automatic class-name inference does not
 match a different custom model.
 
+### Add the synchronized tactical pitch
+
+Roboflow's setup script also publishes the pitch-landmark checkpoint. Save it outside Git:
+
+```bash
+curl -fL \
+  'https://drive.usercontent.google.com/download?id=1Ma5Kt86tgpdjCTKfum79YMgNnSjcoOyf&export=download&confirm=t' \
+  -o models/football-pitch-detection.pt
+
+PYTORCH_ENABLE_MPS_FALLBACK=1 football-tracker \
+  inputs/match.mp4 \
+  --output outputs/match-replay.mp4 \
+  --model models/football-player-detection.pt \
+  --pitch-model models/football-pitch-detection.pt \
+  --device mps \
+  --image-size 960
+```
+
+`--pitch-model` enables the lower panel. The pitch model keeps its published 640-pixel
+inference size by default; raising it to 1280 reduced usable landmarks on the verified sample.
+Use `--pitch-panel-height` to override the automatic height, and use the confidence,
+minimum-keypoint, and maximum-error options only when validating a different camera domain.
+
 ### Team-label behaviour
 
 Team classification is enabled by default. Before tracking, the CLI samples one frame per
@@ -135,11 +164,12 @@ codec options. If MPS is unavailable, use `--device cpu`; it will be slower.
 
 ## Timing and media behaviour
 
-The processor decodes every frame, writes exactly one annotated frame for it, and configures
-the output with the source-reported FPS and resolution. This preserves timing for normal
-constant-frame-rate match clips. OpenCV output is video-only: source audio is not copied,
-and variable-frame-rate timestamps are normalized to the reported average FPS. Audio remux
-and true per-frame timestamps are a later export improvement.
+The processor decodes every frame and writes exactly one composite frame at the source-
+reported FPS. Without a pitch model, source resolution is retained. With a pitch model, the
+source-width tactical panel is appended below, so output height increases while frame count,
+FPS, and constant-frame-rate duration stay unchanged. OpenCV output is video-only: source
+audio is not copied, and variable-frame-rate timestamps are normalized to the reported
+average FPS. Audio remux and true per-frame timestamps are a later export improvement.
 
 The default `mp4v` codec was verified as a playable MP4 on this machine. If a local OpenCV
 build cannot create it, try `--codec avc1`.
@@ -155,8 +185,8 @@ ruff check src tests
 ```
 
 The pipeline was run on real Roboflow Sports football footage. The original 3-second check
-and a 12-second team-classification check with pans and a constructed same-match camera cut
-both preserved input frame count, resolution, FPS, and duration. See
+and pitch-panel checks on a six-second pan and a 12-second constructed same-match camera cut
+preserved input frame count, FPS, and duration. See
 [docs/verification.md](docs/verification.md) for the exact commands, measured results,
 observed ID behaviour, and visual limitations.
 
@@ -167,6 +197,8 @@ src/football_tracker/
   cli.py          argument parsing and early validation
   detection.py    Ultralytics adapter and football-class inference
   classification.py  shirt features, uncertainty-aware clustering, and track smoothing
+  pitch.py        pitch geometry, landmark adapter, RANSAC fit, and quality gates
+  tactical.py     top-down pitch, role markers, and vertical replay composition
   scene.py        camera-cut score
   tracking.py     ByteTrack lifecycle and global display IDs
   annotation.py   boxes, foot markers, labels, and image-space trails
@@ -179,8 +211,8 @@ tests/            unit tests plus a generated-video MP4 integration test
 
 1. **18 Nov — complete:** detection, tracking, cut resets, trails, timed MP4 export.
 2. **18 Nov — complete:** uncertainty-aware shirt classification and separate role handling.
-3. **20 Nov:** pitch landmark model and per-shot homography quality checks.
-4. **21 Nov:** synchronized top-down pitch using only visible, calibrated foot positions.
+3. **19 Nov — complete:** pitch landmarks, per-frame homography gates, and cut invalidation.
+4. **19 Nov — complete:** synchronized pitch using only visible, calibrated foot positions.
 5. **22 Nov:** ball detector/tracker and uncertainty-aware estimated possession.
 6. **23 Nov:** validation clips, ID/calibration quality gates, then speed/distance/spacing only
    where metric calibration supports them.

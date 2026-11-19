@@ -187,7 +187,138 @@ Observed classification behaviour and errors:
 
 ## Current automated checks
 
-After the team and camera-cut changes, 22 tests completed successfully and
+At the end of the team and camera-cut milestone, 22 tests completed successfully and
 `ruff check src tests` reported no issues. The added tests cover shirt-feature extraction,
 repeatable two-cluster fitting, uncertainty rejection, role separation, temporal voting,
 team colours, label placement, CLI options, and the wide-to-tight cut regression fixture.
+
+## Pitch calibration and tactical replay — 19 November 2026
+
+This milestone used Roboflow Sports' published `football-pitch-detection.pt` checkpoint and
+the same match footage as the team verification. The model supplies 32 indexed pitch
+landmarks. The project fits pitch-to-image geometry with OpenCV RANSAC, inverts it for player
+foot projection, and rejects the frame unless landmark count, spatial coverage, inlier ratio,
+and pixel reprojection error pass. No previous homography is carried across a rejected frame.
+
+Two Git-ignored fixtures were checked:
+
+- `roboflow-pan-6s.mp4`: the first six seconds of `0bfacc_0.mp4`, containing a continuous
+  wide broadcast pan;
+- `roboflow-pan-cut-12s.mp4`: the previously documented same-match fixture with a constructed
+  wide-to-tight cut at frame 150 / 6.0 seconds.
+
+The managed workspace's Desktop virtual environment again stalled on large dependency and
+model files. Verification therefore used a temporary Python 3.12 environment and temporary
+copies of the ignored models/inputs. A normal Mac run should use the `.venv` and `models/`
+paths documented in the README.
+
+### Wide-pan command and result
+
+```bash
+MPLCONFIGDIR=/private/tmp/football_tracker_pitch_cache \
+XDG_CACHE_HOME=/private/tmp/football_tracker_pitch_cache \
+PYTORCH_ENABLE_MPS_FALLBACK=1 \
+/private/tmp/football_tracker_verify_20261119/bin/football-tracker \
+  /private/tmp/roboflow-pan-6s.mp4 \
+  --output outputs/pitch-pan-6s.mp4 \
+  --model /private/tmp/football-player-detection.pt \
+  --pitch-model /private/tmp/football-pitch-detection.pt \
+  --device mps \
+  --image-size 960 \
+  --confidence 0.25 \
+  --team-sample-seconds 1.0
+```
+
+Observed result:
+
+```text
+Wrote 150 frames at 25.000 FPS to outputs/pitch-pan-6s.mp4 (26 tracks, 0 camera-cut resets). Team classification ready (goalkeeper/unknown=1, referee=3, team-a=10, team-b=12). Pitch calibration trusted on 150/150 frames with 3259 visible positions projected.
+```
+
+Output metadata:
+
+```text
+codec_name=mpeg4
+width=1920
+height=1490
+r_frame_rate=25/1
+avg_frame_rate=25/1
+duration=6.000000
+nb_frames=150
+```
+
+The source was 1920×1080; the extra 410 rows are the tactical panel. Frame count, FPS, and
+duration match the input. The combined player/pitch tracking pass averaged approximately 4.1
+frames/second on the available Apple Silicon MPS device.
+
+Frames 0, 25, 50, 75, 100, and 125 were inspected. Frame 0 had a trusted calibration but no
+confirmed ByteTrack detections yet, so the pitch correctly contained no dots. Subsequent
+frames showed only current visible tracks: team-coloured player circles, yellow referee
+squares, and a magenta goalkeeper diamond, each labelled with its temporary `T` ID.
+
+The landmark fit updated throughout the pan and never dropped out in this six-second shot.
+No large systematic projection drift was apparent in the contact sheet. Small frame-to-frame
+dot jitter was visible, especially near the touchlines where foot positions are farther from
+the strongest midfield landmarks. There is no labelled pitch-position ground truth, so this
+visual observation is not a metric accuracy claim.
+
+### Camera-cut command and result
+
+The same command was run with `/private/tmp/roboflow-pan-cut-12s.mp4` and output
+`outputs/pitch-pan-cut-12s.mp4`.
+
+Observed result:
+
+```text
+Wrote 300 frames at 25.000 FPS to outputs/pitch-pan-cut-12s.mp4 (50 tracks, 1 camera-cut resets). Team classification ready (goalkeeper/unknown=1, referee=5, team-a=20, team-b=24). Pitch calibration trusted on 224/300 frames with 4847 visible positions projected.
+```
+
+Output metadata:
+
+```text
+codec_name=mpeg4
+width=1920
+height=1490
+r_frame_rate=25/1
+avg_frame_rate=25/1
+duration=12.000000
+nb_frames=300
+```
+
+A pitch-only diagnostic measured the exact calibration intervals:
+
+```text
+trusted                                      224 frames  0-149, 151-224
+camera cut                                     1 frame   150
+too few landmarks agreed with one camera view 75 frames  225-299
+trusted median landmark error                            0.70-3.89 px
+trusted usable landmarks                                7-9 per frame
+```
+
+Observed cut and dropout behaviour:
+
+- Frame 150 immediately discarded the old transform and displayed an empty pitch with
+  `CALIBRATION UNAVAILABLE — camera cut`; no stale dots crossed the edit.
+- Frame 151 earned a fresh transform, but ByteTrack had not confirmed new tracks yet, so the
+  pitch remained dot-free. Frame 152 showed the newly confirmed tracks as grey `unknown`
+  markers while shirt votes accumulated.
+- The tighter second shot remained trusted through frame 224. From frame 225 (9.0 seconds)
+  to the end, fewer than six landmarks agreed with a single homography; all dots were hidden
+  for those 75 frames. This is the largest observed dropout and is preferable to extrapolating
+  player positions from a weak or stale transform.
+- Frames 190, 205, 220, and 224 showed mild jitter but no obvious gross drift immediately
+  before rejection. Pixel landmark error measures internal fit, not true player-location
+  error, so metric statistics remain unavailable.
+
+`3259` and `4847` are cumulative current-frame projections, not unique people and not
+fabricated off-screen positions. A detection is omitted if calibration is unavailable or its
+projected foot falls outside the pitch bounds.
+
+### Replay verification checks
+
+- Both generated MP4 files decoded from start to finish with FFmpeg and no reported errors.
+- The complete suite finished with 32 passing tests.
+- `ruff check src tests` reported no issues.
+- Added coverage includes synthetic homography recovery, landmark/coverage rejection, explicit
+  cut invalidation, current-frame-only projection, role-aware tactical markers, vertical frame
+  composition, and preservation of source frame count and FPS when the panel is enabled.

@@ -18,3 +18,9 @@ The pipeline structure was informed by Roboflow's open-source
 which combines Ultralytics detections with Supervision ByteTrack. This repository's
 implementation is intentionally smaller and written for this project; no model weights or
 sample videos are redistributed here.
+
+The optional `football-pitch-detection.pt` landmark checkpoint and its 32-point, 120×70 m
+pitch configuration are published by that same Roboflow Sports example. This project reuses
+the indexed geometry needed to interpret the checkpoint, then adds its own RANSAC quality
+gates, cut invalidation, tactical renderer, and fail-closed behaviour. The checkpoint remains
+Git-ignored and is not redistributed by this repository.
