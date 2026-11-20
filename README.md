@@ -35,18 +35,18 @@ shirt number into a confirmed identity.
 
 ## Judge quickstart
 
-You need Python 3.11, 3.12, or 3.13. From the repository root, after the two demo files are
-in `outputs/` (see [Demo files](#demo-files)):
+You need Python 3.11, 3.12, or 3.13. From the repository root:
 
 ```bash
 python -m pip install -e . && python -m football_tracker.dashboard
 ```
 
-Then open [http://127.0.0.1:8765](http://127.0.0.1:8765).
-
 That command serves the annotated clip and the replay JSON. It does not download model
-weights and it does not run the match again. If the demo files are missing, the command
-stops and prints where they go, plus how to pass `--video` and `--data`.
+weights and it does not run the match again. A fresh clone does not contain those two
+files, so the command stops until they are downloaded into `outputs/` (see
+[Demo files](#demo-files)). The message names the missing paths and how to pass `--video`
+and `--data`. After the files are in place, open
+[http://127.0.0.1:8765](http://127.0.0.1:8765).
 
 The page reads `track` and `time` query parameters, so a prepared moment has this shape:
 
@@ -63,8 +63,9 @@ node dashboard/verify-replay.mjs outputs/stem2connect-replay-data.json
 
 Use `follow_demo.track_id` and `follow_demo.end_seconds` from the printed JSON.
 
-**TODO (owner):** after the release replay is on disk, paste the resulting URL here so judges
-can open one moment directly.
+**TODO (owner):** this is the shape of the link, not a working moment. After the release
+replay is on disk, run the command above and replace the line below with the printed
+`follow_demo.track_id` and `follow_demo.end_seconds`. Judges should not be sent `TRACK_ID`.
 
 ```text
 http://127.0.0.1:8765/?track=TRACK_ID&time=SECONDS
@@ -88,12 +89,15 @@ https://github.com/Valentinetemi/football_tracker/releases/download/TODO-tag/ste
 https://github.com/Valentinetemi/football_tracker/releases/download/TODO-tag/stem2connect-replay-data.json
 ```
 
-Once those URLs exist, a judge can fetch them with:
+After the release exists, replace `TODO-tag` in these commands with that tag and run them.
+Each command already uses the full asset URL, so do not add the filename a second time.
 
 ```bash
 mkdir -p outputs
-curl -fL -o outputs/stem2connect-annotated-60s.mp4 "RELEASE_URL/stem2connect-annotated-60s.mp4"
-curl -fL -o outputs/stem2connect-replay-data.json "RELEASE_URL/stem2connect-replay-data.json"
+curl -fL -o outputs/stem2connect-annotated-60s.mp4 \
+  "https://github.com/Valentinetemi/football_tracker/releases/download/TODO-tag/stem2connect-annotated-60s.mp4"
+curl -fL -o outputs/stem2connect-replay-data.json \
+  "https://github.com/Valentinetemi/football_tracker/releases/download/TODO-tag/stem2connect-replay-data.json"
 ```
 
 You can also point the server at any other annotated MP4 and replay JSON:

@@ -28,7 +28,9 @@ export function buildTrackCatalog(frames) {
       existing.role = betterLabel(existing.role, player.role);
       existing.label = betterLabel(existing.label, player.label);
       const suggestion = formatSuggestedName(player.suggested_name);
-      if (suggestion && !existing.suggested_name) {
+      if (suggestion) {
+        // Keep the latest exported suggestion. A later consensus can replace an
+        // earlier one; a frame with no suggestion does not invent or erase a name.
         existing.suggested_name = suggestion.endsWith("?")
           ? suggestion.slice(0, -1)
           : suggestion;

@@ -30,9 +30,13 @@ class FakeDetector:
 
 
 class FakeBallDetector:
+    def __init__(self, *, skip_ball_on_calls: set[int] | None = None) -> None:
+        self.skip_ball_on_calls = skip_ball_on_calls or set()
+        self.calls = 0
+
     def detect(self, frame: np.ndarray) -> sv.Detections:
         height, width = frame.shape[:2]
-        return sv.Detections(
+        detections = sv.Detections(
             xyxy=np.asarray(
                 [
                     [width * 0.35, height * 0.2, width * 0.55, height * 0.9],
@@ -42,6 +46,10 @@ class FakeBallDetector:
             confidence=np.asarray([0.9, 0.8]),
             class_id=np.asarray([2, 0]),
         )
+        self.calls += 1
+        if self.calls in self.skip_ball_on_calls and detections.class_id is not None:
+            return detections[detections.class_id != 0]
+        return detections
 
     def class_name(self, class_id: int) -> str:
         return {0: "ball", 2: "player"}[class_id]
@@ -376,7 +384,7 @@ class PipelineTests(unittest.TestCase):
                     pitch_model=str(pitch_model),
                     replay_data_path=replay_path,
                 ),
-                detector=FakeBallDetector(),
+                detector=FakeBallDetector(skip_ball_on_calls={4}),
                 tracks=FakeTracks(),
                 pitch_detector=FakePitchDetector(),
                 pitch_calibrator=FakePitchCalibrator(),
@@ -385,15 +393,15 @@ class PipelineTests(unittest.TestCase):
             payload = json.loads(replay_path.read_text(encoding="utf-8"))
 
         self.assertEqual(len(payload["frames"]), 8)
-        first_ball = payload["frames"][0]["ball"]
-        self.assertTrue(first_ball["visible"])
-        self.assertTrue(first_ball["reliable"])
-        self.assertGreaterEqual(first_ball["x_cm"], 0)
-        self.assertLessEqual(first_ball["x_cm"], 12000)
-        self.assertGreaterEqual(first_ball["y_cm"], 0)
-        self.assertLessEqual(first_ball["y_cm"], 7000)
+        measured = payload["frames"][2]["ball"]
+        self.assertTrue(measured["visible"])
+        self.assertTrue(measured["reliable"])
+        self.assertGreaterEqual(measured["x_cm"], 0)
+        self.assertLessEqual(measured["x_cm"], 12000)
+        self.assertGreaterEqual(measured["y_cm"], 0)
+        self.assertLessEqual(measured["y_cm"], 7000)
         hidden = {"visible": False, "reliable": False, "x_cm": None, "y_cm": None}
-        self.assertNotEqual(first_ball, hidden)
+        self.assertEqual(payload["frames"][3]["ball"], hidden)
 
 
 if __name__ == "__main__":

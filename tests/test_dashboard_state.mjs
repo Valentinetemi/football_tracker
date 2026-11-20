@@ -130,6 +130,35 @@ test("catalog keeps a suggested name and does not invent one", () => {
   const catalog = buildTrackCatalog(frames);
   assert.equal(catalog[0].suggested_name, "Ada");
   assert.equal(catalog[0].team, "team-a");
+  const renamed = buildTrackCatalog([
+    ...frames,
+    {
+      frame: 2,
+      players: [
+        {
+          track_id: 7,
+          role: "player",
+          team: "team-a",
+          label: "team-a",
+          suggested_name: "Bea",
+        },
+      ],
+    },
+    {
+      frame: 3,
+      players: [
+        {
+          track_id: 7,
+          role: "player",
+          team: "team-a",
+          label: "team-a",
+          suggested_name: null,
+        },
+      ],
+    },
+  ]);
+  assert.equal(renamed[0].suggested_name, "Bea");
+  assert.equal(trackMenuLabel(renamed[0]), "T7 · team-a · Bea?");
   const unnamed = buildTrackCatalog([
     {frame: 0, players: [{track_id: 3, role: "referee", team: null, label: "referee"}]},
   ]);

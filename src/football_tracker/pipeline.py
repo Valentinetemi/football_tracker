@@ -316,10 +316,12 @@ def run_pipeline(
         trails = TrailStore()
         total = metadata.reported_frame_count or None
         progress = tqdm(total=total, desc="tracking", unit="frame", disable=not show_progress)
+        # The video writer is innermost so it publishes first. If that replace fails,
+        # the replay exporter still sees the error and keeps the previous JSON.
         with (
             progress,
-            VideoWriter(config.output_path, output_metadata, config.codec) as writer,
             replay_context as replay_exporter,
+            VideoWriter(config.output_path, output_metadata, config.codec) as writer,
         ):
             for frame_index, frame in reader:
                 scene_change = scene_detector.update(frame)
