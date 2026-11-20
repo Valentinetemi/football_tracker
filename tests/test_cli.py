@@ -111,6 +111,32 @@ class CliTests(unittest.TestCase):
         self.assertEqual(received[0].ball_confidence, 0.4)
         self.assertEqual(received[0].ball_minimum_hits, 2)
 
+    def test_replay_data_export_is_opt_in_and_requires_pitch_model(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            input_path = root / "clip.mp4"
+            pitch_model = root / "pitch.pt"
+            replay_data = root / "replay.json"
+            input_path.touch()
+            pitch_model.touch()
+            received = []
+
+            exit_code = main(
+                [
+                    str(input_path),
+                    "--output",
+                    str(root / "tracked.mp4"),
+                    "--pitch-model",
+                    str(pitch_model),
+                    "--replay-data",
+                    str(replay_data),
+                ],
+                runner=received.append,
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(received[0].replay_data_path, replay_data)
+
 
 if __name__ == "__main__":
     unittest.main()

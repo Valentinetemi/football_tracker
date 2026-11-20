@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -218,6 +219,39 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(summary.pitch_trusted_frames, 8)
         self.assertEqual(summary.pitch_unavailable_frames, 0)
         self.assertEqual(summary.projected_positions, 8)
+
+    def test_optional_replay_export_uses_the_same_projected_pipeline_frames(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.mp4"
+            output = root / "tactical.mp4"
+            pitch_model = root / "pitch.pt"
+            replay_data = root / "replay.json"
+            make_source_video(source)
+            pitch_model.touch()
+
+            summary = run_pipeline(
+                PipelineConfig(
+                    input_path=source,
+                    output_path=output,
+                    reset_on_cut=False,
+                    classify_teams=False,
+                    pitch_model=str(pitch_model),
+                    pitch_panel_height=80,
+                    replay_data_path=replay_data,
+                ),
+                detector=FakeDetector(),
+                tracks=FakeTracks(),
+                pitch_detector=FakePitchDetector(),
+                pitch_calibrator=FakePitchCalibrator(),
+                show_progress=False,
+            )
+            payload = json.loads(replay_data.read_text(encoding="utf-8"))
+
+        self.assertEqual(summary.replay_data_path, str(replay_data))
+        self.assertEqual(len(payload["frames"]), 8)
+        self.assertEqual(payload["frames"][0]["players"][0]["track_id"], 1)
+        self.assertIsNotNone(payload["frames"][0]["players"][0]["x_cm"])
 
     def test_camera_cut_invalidates_pitch_for_the_cut_frame(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

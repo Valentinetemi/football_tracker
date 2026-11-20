@@ -44,6 +44,7 @@ class PipelineConfig:
     ball_minimum_hits: int = 2
     ball_maximum_gap: int = 8
     ball_maximum_distance_ratio: float = 0.10
+    replay_data_path: Path | None = None
     codec: str = "mp4v"
 
     def validate(self) -> None:
@@ -108,6 +109,10 @@ class PipelineConfig:
             raise ValueError("Ball maximum gap must be at least 1 frame.")
         if not 0.0 < self.ball_maximum_distance_ratio <= 1.0:
             raise ValueError("Ball maximum distance ratio must be between 0 and 1.")
+        if self.replay_data_path is not None:
+            if self.pitch_model is None:
+                raise ValueError("Replay data export requires a pitch model.")
+            if self.replay_data_path.suffix.lower() != ".json":
+                raise ValueError("Replay data path must end in .json")
         if len(self.codec) != 4:
             raise ValueError("Codec must be a four-character OpenCV FourCC value.")
-

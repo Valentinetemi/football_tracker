@@ -178,6 +178,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="frames retaining hidden motion state after a missed ball (default: 8)",
     )
     parser.add_argument(
+        "--replay-data",
+        type=Path,
+        help="optional per-frame .json export for the interactive replay dashboard",
+    )
+    parser.add_argument(
         "--codec",
         default="mp4v",
         help="four-character OpenCV output codec (default: mp4v)",
@@ -218,6 +223,7 @@ def config_from_args(args: argparse.Namespace) -> PipelineConfig:
         ball_confidence=args.ball_confidence,
         ball_minimum_hits=args.ball_minimum_hits,
         ball_maximum_gap=args.ball_maximum_gap,
+        replay_data_path=args.replay_data,
         codec=args.codec,
     )
 
@@ -244,4 +250,3 @@ def main(
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -39,6 +40,7 @@ from football_tracker.pitch import (
     SoccerPitch,
     UltralyticsPitchDetector,
 )
+from football_tracker.replay import ReplayDataExporter
 from football_tracker.scene import SceneChangeDetector
 from football_tracker.tactical import render_tactical_panel, resolve_panel_height, stack_replay
 from football_tracker.tracking import TrackManager
@@ -92,6 +94,7 @@ class PipelineSummary:
     pitch_dropout_reasons: tuple[tuple[str, int], ...]
     jersey_suggestions: JerseySuggestionSummary | None
     ball_tracking: BallTrackingSummary | None
+    replay_data_path: str | None
 
     def __str__(self) -> str:
         tracks = "unknown" if self.unique_tracks is None else str(self.unique_tracks)
@@ -124,6 +127,8 @@ class PipelineSummary:
                 f"ambiguous={self.ball_tracking.ambiguous_frames}, "
                 f"recoveries={self.ball_tracking.recoveries}."
             )
+        if self.replay_data_path is not None:
+            result += f" Replay data: {self.replay_data_path}."
         return result
 
 
@@ -294,12 +299,28 @@ def run_pipeline(
             maximum_distance_ratio=config.ball_maximum_distance_ratio,
         )
 
+    replay_context = (
+        ReplayDataExporter(
+            config.replay_data_path,
+            fps=metadata.fps,
+            frame_count=metadata.reported_frame_count,
+            pitch=pitch_calibrator.pitch,
+            source_video=config.input_path.name,
+        )
+        if config.replay_data_path is not None and pitch_calibrator is not None
+        else nullcontext(None)
+    )
+
     with VideoReader(config.input_path) as reader:
         scene_detector = SceneChangeDetector(threshold=config.cut_threshold)
         trails = TrailStore()
         total = metadata.reported_frame_count or None
         progress = tqdm(total=total, desc="tracking", unit="frame", disable=not show_progress)
-        with progress, VideoWriter(config.output_path, output_metadata, config.codec) as writer:
+        with (
+            progress,
+            VideoWriter(config.output_path, output_metadata, config.codec) as writer,
+            replay_context as replay_exporter,
+        ):
             for frame_index, frame in reader:
                 scene_change = scene_detector.update(frame)
                 reset_for_cut = config.reset_on_cut and scene_change.is_cut
@@ -388,6 +409,17 @@ def run_pipeline(
                         pitch_dropout_counts[pitch_calibration.reason] = (
                             pitch_dropout_counts.get(pitch_calibration.reason, 0) + 1
                         )
+                    if replay_exporter is not None:
+                        replay_exporter.write_frame(
+                            frame_index=frame_index,
+                            segment=tracks.segment,
+                            camera_cut=reset_for_cut,
+                            calibration=pitch_calibration,
+                            detections=tracked,
+                            assignments=assignments,
+                            suggestions=suggestions,
+                            class_name=detector.class_name,
+                        )
                     output_frame = stack_replay(annotated, tactical_panel)
                 writer.write(output_frame)
                 progress.update(1)
@@ -411,4 +443,7 @@ def run_pipeline(
         pitch_dropout_reasons=tuple(sorted(pitch_dropout_counts.items())),
         jersey_suggestions=jersey_engine.summary() if jersey_engine is not None else None,
         ball_tracking=ball_tracker.summary() if ball_tracker is not None else None,
+        replay_data_path=(
+            str(config.replay_data_path) if config.replay_data_path is not None else None
+        ),
     )

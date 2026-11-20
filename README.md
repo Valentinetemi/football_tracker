@@ -257,6 +257,34 @@ tracklet model can replace `JerseyNumberOCR` without changing the replay pipelin
 Use `football-tracker --help` for confidence, tracker buffer, camera-cut, class, device, and
 codec options. If MPS is unavailable, use `--device cpu`; it will be slower.
 
+## Local replay dashboard
+
+The tracker can write browser-friendly per-frame pitch positions without changing the video
+render. Replay data requires the same trusted pitch calibration used by the tactical panel:
+
+```bash
+PYTORCH_ENABLE_MPS_FALLBACK=1 football-tracker \
+  inputs/match.mp4 \
+  --output outputs/match-tactical.mp4 \
+  --model models/football-player-detection.pt \
+  --pitch-model models/football-pitch-detection.pt \
+  --device mps \
+  --replay-data outputs/match-replay-data.json
+```
+
+For the prepared STEM2Connect demo, serve the existing annotated clip and replay data from the
+repository root:
+
+```bash
+PYTHONPATH=src python -m football_tracker.dashboard --host 127.0.0.1 --port 8765
+```
+
+Open [http://127.0.0.1:8765](http://127.0.0.1:8765). The server supports video byte ranges so
+seeking remains synchronized with the interactive pitch. Player selection never moves to a
+different track when the selected ID disappears. Trails break on missing positions and camera
+cuts. Moment tags use browser `localStorage`; they do not change the replay JSON or repository.
+Optional `track` and `time` query parameters can open a prepared demo moment directly.
+
 ## Timing and media behaviour
 
 The processor decodes every frame and writes exactly one composite frame at the source-
@@ -296,12 +324,15 @@ src/football_tracker/
   identity.py     roster validation, jersey crops, replaceable OCR, and track consensus
   pitch.py        pitch geometry, landmark adapter, RANSAC fit, and quality gates
   tactical.py     top-down pitch, role markers, and vertical replay composition
+  replay.py       atomic per-frame replay-data export
+  dashboard.py    local range-aware dashboard server
   scene.py        camera-cut score
   tracking.py     ByteTrack lifecycle and global display IDs
   annotation.py   boxes, foot markers, labels, and image-space trails
   video.py        explicit reader and atomic source-FPS writer
   pipeline.py     end-to-end orchestration
 tests/            unit tests plus a generated-video MP4 integration test
+dashboard/        one-screen replay UI and actual-data verification script
 ```
 
 ## One-week roadmap
@@ -316,7 +347,8 @@ tests/            unit tests plus a generated-video MP4 integration test
    replay markers; possession remains deferred.
 7. **23 Nov:** validation clips, ID/calibration quality gates, then speed/distance/spacing only
    where metric calibration supports them.
-8. **24 Nov:** demo polish and a small dashboard after the annotated video remains reliable.
+8. **20 Nov — complete:** one-screen local replay dashboard with follow-player trails and
+   locally saved moment tags.
 
 No tactical position will be fabricated outside the camera view. Statistics will be marked
 unavailable when detection, tracking, or calibration quality is insufficient.

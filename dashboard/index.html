@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>STEM2Connect · Follow Player Replay</title>
+    <link rel="stylesheet" href="/app.css" />
+  </head>
+  <body>
+    <main class="dashboard-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">STEM2CONNECT · VALIDATION CLIP</p>
+          <h1>Follow Player Replay</h1>
+        </div>
+        <div class="clock" aria-live="polite">
+          <strong id="time-label">00:00.00</strong>
+          <span id="frame-label">Frame 0 · Segment 1</span>
+        </div>
+      </header>
+
+      <section class="follow-controls" aria-label="Follow player controls">
+        <label for="player-select">Tracked player</label>
+        <select id="player-select">
+          <option value="">Choose a track…</option>
+        </select>
+        <button id="clear-selection" class="secondary" type="button">Clear selection</button>
+        <div id="follow-status" class="follow-status" aria-live="polite">
+          Select a player on the pitch or from the list.
+        </div>
+      </section>
+
+      <section class="replay-grid">
+        <article class="panel video-panel">
+          <div class="panel-heading">
+            <div>
+              <span class="panel-kicker">MATCH VIEW</span>
+              <h2>Annotated broadcast</h2>
+            </div>
+            <span id="cut-badge" class="cut-badge" hidden>Camera cut</span>
+          </div>
+          <video id="match-video" src="/match.mp4" controls preload="metadata" playsinline></video>
+        </article>
+
+        <article class="panel pitch-panel">
+          <div class="panel-heading">
+            <div>
+              <span class="panel-kicker">LIVE POSITION</span>
+              <h2>Interactive tactical pitch</h2>
+            </div>
+            <span class="hint">Click a marker to follow</span>
+          </div>
+          <div class="pitch-stage">
+            <canvas id="pitch-canvas" aria-label="Interactive top-down football pitch"></canvas>
+            <div id="pitch-empty" class="pitch-empty" hidden>Calibration unavailable</div>
+          </div>
+        </article>
+      </section>
+
+      <section class="timeline-panel panel" aria-label="Moment tags">
+        <div class="timeline-copy">
+          <span class="panel-kicker">LOCAL NOTES</span>
+          <h2>Tag a moment</h2>
+          <p>Tags stay in this browser. Open one to jump two seconds before the moment.</p>
+        </div>
+
+        <div class="timeline-workspace">
+          <div id="tag-timeline" class="tag-timeline" aria-label="Tagged moments timeline">
+            <div id="timeline-progress" class="timeline-progress"></div>
+            <div id="tag-markers"></div>
+          </div>
+          <form id="tag-form" class="tag-form">
+            <span id="tag-time" class="tag-time">00:00.00</span>
+            <select id="tag-player" aria-label="Optional tagged player">
+              <option value="">No player</option>
+            </select>
+            <input
+              id="tag-note"
+              type="text"
+              maxlength="120"
+              required
+              placeholder="What happened?"
+              aria-label="Moment note"
+            />
+            <button type="submit">Add tag</button>
+          </form>
+          <div id="tag-list" class="tag-list" aria-live="polite"></div>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="/app.mjs"></script>
+  </body>
+</html>
