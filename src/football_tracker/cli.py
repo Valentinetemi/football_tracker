@@ -185,7 +185,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--codec",
         default="mp4v",
-        help="four-character OpenCV output codec (default: mp4v)",
+        help=(
+            "four-character OpenCV output codec (default: mp4v). "
+            "mp4v often will not play in browsers; use avc1 for H.264 when this "
+            "OpenCV build supports it"
+        ),
     )
     return parser
 

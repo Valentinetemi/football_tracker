@@ -38,6 +38,31 @@ class ProjectedEntity:
     y: float
 
 
+def project_measured_ball(
+    *,
+    pitch: SoccerPitch,
+    calibration: PitchCalibration,
+    ball: BallObservation | None,
+) -> tuple[float, float] | None:
+    """Project a current measured ball centre, or return None.
+
+    None means the ball is not shown. That happens when this frame has no reliable
+    observation, calibration is untrusted, or the projected point leaves the pitch.
+    The returned point is the measured centre mapped through this frame's homography.
+    It is never a predicted or carried-forward location.
+    """
+    if ball is None or not calibration.trusted:
+        return None
+    projected = calibration.project(np.asarray([ball.center], dtype=np.float32))[0]
+    if not np.all(np.isfinite(projected)):
+        return None
+    x = float(projected[0])
+    y = float(projected[1])
+    if x < 0 or x > pitch.length or y < 0 or y > pitch.width:
+        return None
+    return x, y
+
+
 def project_visible_entities(
     *,
     pitch: SoccerPitch,
@@ -341,22 +366,16 @@ def render_tactical_panel(
             radius=radius,
         )
 
-    if ball is not None:
-        ball_point = np.asarray([ball.center], dtype=np.float32)
-        projected_ball = calibration.project(ball_point)[0]
-        if (
-            np.all(np.isfinite(projected_ball))
-            and 0 <= projected_ball[0] <= pitch.length
-            and 0 <= projected_ball[1] <= pitch.width
-        ):
-            ball_center = _world_to_panel(
-                (float(projected_ball[0]), float(projected_ball[1])),
-                origin=origin,
-                scale=scale,
-            )
-            ball_radius = max(4, round(radius * 0.7))
-            cv2.circle(panel, ball_center, ball_radius + 2, DOT_EDGE_BGR, -1, cv2.LINE_AA)
-            cv2.circle(panel, ball_center, ball_radius, BALL_COLOR_BGR, -1, cv2.LINE_AA)
+    projected_ball = project_measured_ball(
+        pitch=pitch,
+        calibration=calibration,
+        ball=ball,
+    )
+    if projected_ball is not None:
+        ball_center = _world_to_panel(projected_ball, origin=origin, scale=scale)
+        ball_radius = max(4, round(radius * 0.7))
+        cv2.circle(panel, ball_center, ball_radius + 2, DOT_EDGE_BGR, -1, cv2.LINE_AA)
+        cv2.circle(panel, ball_center, ball_radius, BALL_COLOR_BGR, -1, cv2.LINE_AA)
     return panel, len(entities)
 
 

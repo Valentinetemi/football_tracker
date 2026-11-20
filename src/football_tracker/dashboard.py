@@ -4,12 +4,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from dataclasses import dataclass
 from functools import partial
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
+
+STATIC_ASSETS = ("index.html", "app.css", "app.mjs", "replay-state.mjs")
+DEFAULT_VIDEO = Path("outputs/stem2connect-annotated-60s.mp4")
+DEFAULT_REPLAY_DATA = Path("outputs/stem2connect-replay-data.json")
+BROWSER_FRIENDLY_CODECS = frozenset({"avc1", "h264", "x264", "avc3"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,6 +27,129 @@ class DashboardSettings:
 
 class InvalidRange(ValueError):
     """Raised when an HTTP byte range cannot be satisfied."""
+
+
+class DashboardInputError(Exception):
+    """Raised when the dashboard cannot start because a required file is missing."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
+
+
+@dataclass(frozen=True, slots=True)
+class MissingDashboardFiles:
+    static_files: tuple[Path, ...]
+    video_path: Path | None
+    replay_data_path: Path | None
+
+    @property
+    def has_any(self) -> bool:
+        return bool(self.static_files or self.video_path or self.replay_data_path)
+
+
+def find_missing_dashboard_files(settings: DashboardSettings) -> MissingDashboardFiles:
+    static_files = tuple(
+        path
+        for name in STATIC_ASSETS
+        if not (path := settings.static_directory / name).is_file()
+    )
+    video_path = settings.video_path if not settings.video_path.is_file() else None
+    replay_data_path = (
+        settings.replay_data_path if not settings.replay_data_path.is_file() else None
+    )
+    return MissingDashboardFiles(static_files, video_path, replay_data_path)
+
+
+def format_missing_dashboard_files(missing: MissingDashboardFiles) -> str:
+    """Explain a fresh-clone failure and how to point the server at real files."""
+    lines = [
+        "The replay dashboard cannot start because required files are missing.",
+        "",
+        "Missing:",
+    ]
+    for path in missing.static_files:
+        lines.append(f"  - {path} (dashboard asset)")
+    if missing.video_path is not None:
+        lines.append(f"  - {missing.video_path} (annotated match video)")
+    if missing.replay_data_path is not None:
+        lines.append(f"  - {missing.replay_data_path} (per-frame replay JSON)")
+
+    if missing.video_path is not None or missing.replay_data_path is not None:
+        lines.extend(
+            [
+                "",
+                "A fresh clone does not include the demo video or replay JSON. Those files",
+                "are gitignored. Download them from the GitHub Release the project owner",
+                "uploads (README section \"Demo files\") and place them at the default paths:",
+                "",
+                f"  {DEFAULT_VIDEO}",
+                f"  {DEFAULT_REPLAY_DATA}",
+                "",
+                "Or pass files you already have:",
+                "",
+                "  python -m football_tracker.dashboard \\",
+                "    --video path/to/annotated.mp4 \\",
+                "    --data path/to/replay-data.json",
+                "",
+                "OpenCV's default mp4v output often will not play in a browser. Prefer an",
+                "H.264 file written with --codec avc1 when this machine's OpenCV build",
+                "supports it.",
+            ]
+        )
+    if missing.static_files:
+        lines.extend(
+            [
+                "",
+                "Dashboard HTML and scripts live in the dashboard directory at the",
+                "repository root. Run this command from the repository root, or pass",
+                "--static-directory.",
+            ]
+        )
+    return "\n".join(lines)
+
+
+def ensure_dashboard_files(settings: DashboardSettings) -> None:
+    missing = find_missing_dashboard_files(settings)
+    if missing.has_any:
+        raise DashboardInputError(format_missing_dashboard_files(missing))
+
+
+def browser_playback_notice(codec: str | None) -> str | None:
+    """Warn when a video codec is unlikely to play in the dashboard browser."""
+    if codec is None:
+        return None
+    normalized = "".join(char for char in codec if char.isprintable()).strip().lower()
+    if normalized in BROWSER_FRIENDLY_CODECS:
+        return None
+    shown = normalized or "unknown"
+    return (
+        f"Note: this video's codec is {shown!r}. OpenCV's default mp4v output often "
+        "will not play in a browser. Prefer H.264 (--codec avc1) for the dashboard "
+        "file when this machine's OpenCV build can write it."
+    )
+
+
+def read_video_codec(path: Path) -> str | None:
+    """Return the four-character codec OpenCV reports, or None if it cannot."""
+    try:
+        import cv2
+    except ImportError:
+        return None
+    capture = cv2.VideoCapture(str(path))
+    try:
+        if not capture.isOpened():
+            return None
+        fourcc = int(capture.get(cv2.CAP_PROP_FOURCC))
+    finally:
+        capture.release()
+    characters: list[str] = []
+    for shift in range(4):
+        value = (fourcc >> (8 * shift)) & 0xFF
+        if value < 32 or value > 126:
+            return None
+        characters.append(chr(value))
+    return "".join(characters)
 
 
 def parse_byte_range(value: str | None, size: int) -> tuple[int, int] | None:
@@ -174,14 +303,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--video",
         type=Path,
-        default=Path("outputs/stem2connect-annotated-60s.mp4"),
-        help="annotated match video",
+        default=DEFAULT_VIDEO,
+        help=(
+            "annotated match video served at /match.mp4 "
+            f"(default: {DEFAULT_VIDEO}). Use an H.264 file; mp4v often will not "
+            "play in browsers."
+        ),
     )
     parser.add_argument(
         "--data",
         type=Path,
-        default=Path("outputs/stem2connect-replay-data.json"),
-        help="per-frame replay JSON",
+        default=DEFAULT_REPLAY_DATA,
+        help=(
+            "per-frame replay JSON served at /replay-data.json "
+            f"(default: {DEFAULT_REPLAY_DATA})"
+        ),
     )
     parser.add_argument(
         "--static-directory",
@@ -192,31 +328,33 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+    if not 0 <= args.port <= 65535:
+        parser.error("Port must be between 0 and 65535.")
     settings = DashboardSettings(
         static_directory=args.static_directory.resolve(),
         video_path=args.video.resolve(),
         replay_data_path=args.data.resolve(),
     )
-    required = (
-        settings.static_directory / "index.html",
-        settings.static_directory / "app.css",
-        settings.static_directory / "app.mjs",
-        settings.static_directory / "replay-state.mjs",
-        settings.video_path,
-        settings.replay_data_path,
-    )
-    missing = [str(path) for path in required if not path.is_file()]
-    if missing:
-        parser.error("Missing dashboard file(s): " + ", ".join(missing))
-    if not 0 <= args.port <= 65535:
-        parser.error("Port must be between 0 and 65535.")
+    try:
+        ensure_dashboard_files(settings)
+    except DashboardInputError as exc:
+        print(exc.message, file=sys.stderr)
+        return 2
 
     server = create_server(settings, host=args.host, port=args.port)
     actual_port = server.server_address[1]
     print(f"STEM2Connect replay dashboard: http://{args.host}:{actual_port}", flush=True)
+    notice = browser_playback_notice(read_video_codec(settings.video_path))
+    if notice:
+        print(notice, flush=True)
+    print(
+        "Open a prepared moment with ?track=<id>&time=<seconds> on that URL. "
+        "The README explains how to choose those values from the replay file.",
+        flush=True,
+    )
     try:
         server.serve_forever()
     except KeyboardInterrupt:
