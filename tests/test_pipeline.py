@@ -355,6 +355,46 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(summary.ball_tracking.reliable_frames, 7)  # type: ignore[union-attr]
         self.assertEqual(summary.ball_tracking.ambiguous_frames, 0)  # type: ignore[union-attr]
 
+    def test_replay_export_includes_a_measured_ball_without_inventing_gaps(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.mp4"
+            output = root / "replay.mp4"
+            replay_path = root / "replay.json"
+            pitch_model = root / "pitch.pt"
+            pitch_model.write_bytes(b"not-a-real-checkpoint")
+            make_source_video(source)
+
+            run_pipeline(
+                PipelineConfig(
+                    input_path=source,
+                    output_path=output,
+                    reset_on_cut=False,
+                    classify_teams=False,
+                    track_ball=True,
+                    ball_minimum_hits=1,
+                    pitch_model=str(pitch_model),
+                    replay_data_path=replay_path,
+                ),
+                detector=FakeBallDetector(),
+                tracks=FakeTracks(),
+                pitch_detector=FakePitchDetector(),
+                pitch_calibrator=FakePitchCalibrator(),
+                show_progress=False,
+            )
+            payload = json.loads(replay_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(len(payload["frames"]), 8)
+        first_ball = payload["frames"][0]["ball"]
+        self.assertTrue(first_ball["visible"])
+        self.assertTrue(first_ball["reliable"])
+        self.assertGreaterEqual(first_ball["x_cm"], 0)
+        self.assertLessEqual(first_ball["x_cm"], 12000)
+        self.assertGreaterEqual(first_ball["y_cm"], 0)
+        self.assertLessEqual(first_ball["y_cm"], 7000)
+        hidden = {"visible": False, "reliable": False, "x_cm": None, "y_cm": None}
+        self.assertNotEqual(first_ball, hidden)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -9,7 +9,7 @@ from football_tracker.ball import BallObservation
 from football_tracker.classification import EntityAssignment
 from football_tracker.identity import PlayerSuggestion
 from football_tracker.pitch import PitchCalibration, SoccerPitch
-from football_tracker.tactical import render_tactical_panel, stack_replay
+from football_tracker.tactical import project_measured_ball, render_tactical_panel, stack_replay
 
 
 def trusted_calibration() -> PitchCalibration:
@@ -128,6 +128,20 @@ class TacticalRenderingTests(unittest.TestCase):
         self.assertEqual(count, 0)
         self.assertTrue(np.any(with_ball != without_ball))
         np.testing.assert_array_equal(untrusted_with, untrusted_without)
+        off_pitch = BallObservation((5000.0, 300.0), (4996.0, 296.0, 5004.0, 304.0), 0.8)
+        self.assertIsNone(
+            project_measured_ball(
+                pitch=SoccerPitch(),
+                calibration=trusted_calibration(),
+                ball=off_pitch,
+            )
+        )
+        off_pitch_panel, _ = render_tactical_panel(
+            calibration=trusted_calibration(),
+            ball=off_pitch,
+            **arguments,  # type: ignore[arg-type]
+        )
+        np.testing.assert_array_equal(off_pitch_panel, without_ball)
 
     def test_stacks_pitch_beneath_replay(self) -> None:
         replay = np.zeros((96, 160, 3), dtype=np.uint8)

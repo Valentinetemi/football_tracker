@@ -20,17 +20,79 @@ export function buildTrackCatalog(frames) {
         team: null,
         role: player.role,
         label: player.label,
+        suggested_name: null,
         first_frame: frame.frame,
         last_frame: frame.frame,
       };
       existing.team = existing.team ?? player.team;
       existing.role = betterLabel(existing.role, player.role);
       existing.label = betterLabel(existing.label, player.label);
+      const suggestion = formatSuggestedName(player.suggested_name);
+      if (suggestion && !existing.suggested_name) {
+        existing.suggested_name = suggestion.endsWith("?")
+          ? suggestion.slice(0, -1)
+          : suggestion;
+      }
       existing.last_frame = frame.frame;
       tracks.set(player.track_id, existing);
     }
   }
   return [...tracks.values()].sort((first, second) => first.track_id - second.track_id);
+}
+
+export function formatSuggestedName(name) {
+  if (typeof name !== "string") return null;
+  const trimmed = name.trim();
+  if (!trimmed) return null;
+  return trimmed.endsWith("?") ? trimmed : `${trimmed}?`;
+}
+
+export function entityLabel(entity) {
+  if (!entity) return "unknown";
+  const role = entity.role ?? "";
+  const label = entity.label ?? "";
+  if (role === "goalkeeper" || label === "goalkeeper/unknown" || label === "goalkeeper") {
+    return "GK";
+  }
+  if (entity.team === "team-a" || entity.team === "team-b") return entity.team;
+  if (role === "referee" || label === "referee") return "referee";
+  if (label && label !== "unknown") return label;
+  if (role && role !== "unknown") return role;
+  return "unknown";
+}
+
+export function trackMenuLabel(track) {
+  const suggestion = formatSuggestedName(track.suggested_name);
+  const base = `T${track.track_id} · ${entityLabel(track)}`;
+  return suggestion ? `${base} · ${suggestion}` : base;
+}
+
+export function followStatusText(selectedTrackId, frame, catalogTrack = null) {
+  if (selectedTrackId == null) {
+    return "Select a player on the pitch or from the list.";
+  }
+  const selectedPlayer = playerAtFrame(frame, selectedTrackId);
+  const source = selectedPlayer ?? catalogTrack;
+  const label = source ? entityLabel(source) : null;
+  const suggestion = formatSuggestedName(
+    selectedPlayer ? selectedPlayer.suggested_name : catalogTrack?.suggested_name,
+  );
+  const details = [label, suggestion].filter(Boolean).join(" · ");
+  const prefix = details ? `T${selectedTrackId} · ${details}` : `T${selectedTrackId}`;
+  const visible =
+    selectedPlayer &&
+    Number.isFinite(selectedPlayer.x_cm) &&
+    Number.isFinite(selectedPlayer.y_cm);
+  if (!visible) return `${prefix} · Player not visible.`;
+  return `Following ${prefix}`;
+}
+
+export function ballPosition(frame) {
+  const ball = frame?.ball;
+  if (!frame?.calibration_trusted || !ball || ball.visible !== true) return null;
+  if (ball.reliable === false) return null;
+  if (!Number.isFinite(ball.x_cm) || !Number.isFinite(ball.y_cm)) return null;
+  return {x_cm: ball.x_cm, y_cm: ball.y_cm};
 }
 
 export function playerAtFrame(frame, trackId) {

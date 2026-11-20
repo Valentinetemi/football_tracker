@@ -1,11 +1,16 @@
 import {
+  ballPosition,
   buildTrackCatalog,
   buildTrailSegments,
+  entityLabel,
   findNearestPlayer,
+  followStatusText,
+  formatSuggestedName,
   formatTimestamp,
   frameIndexForTime,
   noteJumpTime,
   playerAtFrame,
+  trackMenuLabel,
 } from "/replay-state.mjs";
 
 const $ = (selector) => document.querySelector(selector);
@@ -20,6 +25,7 @@ const timeLabel = $("#time-label");
 const frameLabel = $("#frame-label");
 const cutBadge = $("#cut-badge");
 const pitchEmpty = $("#pitch-empty");
+const videoNote = $("#video-note");
 const timelineProgress = $("#timeline-progress");
 const tagForm = $("#tag-form");
 const tagTime = $("#tag-time");
@@ -30,10 +36,10 @@ const tagList = $("#tag-list");
 const STORAGE_KEY = "stem2connect-replay-notes-v1";
 const TRAIL_FRAMES = 75;
 const COLORS = {
-  "team-a": "#3da9fc",
-  "team-b": "#ff5f72",
-  referee: "#f6d84a",
-  goalkeeper: "#d071ff",
+  "team-a": "#3aa0ff",
+  "team-b": "#ff5d73",
+  referee: "#f5d451",
+  goalkeeper: "#d56bff",
   unknown: "#aab6b1",
 };
 
@@ -58,25 +64,22 @@ function hasPosition(player) {
   return player && Number.isFinite(player.x_cm) && Number.isFinite(player.y_cm);
 }
 
-function playerDescription(player) {
-  if (!player) return "unknown";
-  return player.team ?? player.label ?? player.role ?? "unknown";
-}
-
 function colorFor(player) {
   if (player?.team && COLORS[player.team]) return COLORS[player.team];
+  if (entityLabel(player) === "GK") return COLORS.goalkeeper;
   return COLORS[player?.role] ?? COLORS.unknown;
 }
 
-function optionLabel(track) {
-  return `T${track.track_id} · ${track.team ?? track.label ?? track.role ?? "unknown"}`;
+function markerText(player) {
+  if (entityLabel(player) === "GK") return `T${player.track_id} GK`;
+  return `T${player.track_id}`;
 }
 
 function populateTrackSelectors() {
   for (const track of catalog) {
     const option = document.createElement("option");
     option.value = String(track.track_id);
-    option.textContent = optionLabel(track);
+    option.textContent = trackMenuLabel(track);
     playerSelect.append(option);
 
     const tagOption = option.cloneNode(true);
@@ -135,9 +138,9 @@ function pitchPoint(rect, xCm, yCm) {
 }
 
 function drawPitch(rect) {
-  context.fillStyle = "#0c1916";
+  context.fillStyle = "#0c1412";
   context.fillRect(0, 0, canvas.width, canvas.height);
-  context.fillStyle = "#286d43";
+  context.fillStyle = "#1f7a45";
   context.fillRect(rect.x, rect.y, rect.width, rect.height);
   context.strokeStyle = "rgba(246, 249, 239, 0.9)";
   context.lineWidth = Math.max(1.5, canvas.width / 650);
@@ -209,20 +212,49 @@ function drawTrail(rect, frame) {
   }
 }
 
+function drawDiamond(point, radius) {
+  context.beginPath();
+  context.moveTo(point.x, point.y - radius);
+  context.lineTo(point.x + radius, point.y);
+  context.lineTo(point.x, point.y + radius);
+  context.lineTo(point.x - radius, point.y);
+  context.closePath();
+  context.fill();
+  context.stroke();
+}
+
+function drawLabel(text, x, y) {
+  context.lineWidth = Math.max(3, canvas.width / 420);
+  context.strokeStyle = "rgba(6, 12, 16, 0.85)";
+  context.strokeText(text, x, y);
+  context.fillStyle = "#f7fbf5";
+  context.fillText(text, x, y);
+}
+
 function drawPlayers(rect, frame) {
   const radius = Math.max(6, canvas.width / 105);
   for (const player of frame.players) {
     if (!hasPosition(player)) continue;
     const point = pitchPoint(rect, player.x_cm, player.y_cm);
     const isSelected = player.track_id === selectedTrackId;
-    context.globalAlpha = selectedTrackId == null || isSelected ? 1 : 0.2;
+    const markerRadius = isSelected ? radius * 1.22 : radius;
+    context.globalAlpha = selectedTrackId == null || isSelected ? 1 : 0.55;
     context.fillStyle = colorFor(player);
     context.strokeStyle = "#06100d";
     context.lineWidth = Math.max(2, canvas.width / 500);
-    context.beginPath();
-    context.arc(point.x, point.y, isSelected ? radius * 1.22 : radius, 0, Math.PI * 2);
-    context.fill();
-    context.stroke();
+    const label = entityLabel(player);
+    if (label === "GK") {
+      drawDiamond(point, markerRadius);
+    } else if (label === "referee") {
+      const size = markerRadius * 0.95;
+      context.fillRect(point.x - size, point.y - size, size * 2, size * 2);
+      context.strokeRect(point.x - size, point.y - size, size * 2, size * 2);
+    } else {
+      context.beginPath();
+      context.arc(point.x, point.y, markerRadius, 0, Math.PI * 2);
+      context.fill();
+      context.stroke();
+    }
     if (isSelected) {
       context.strokeStyle = "#f8ffdf";
       context.lineWidth = Math.max(2, canvas.width / 380);
@@ -230,11 +262,39 @@ function drawPlayers(rect, frame) {
       context.arc(point.x, point.y, radius * 1.75, 0, Math.PI * 2);
       context.stroke();
     }
-    context.fillStyle = "#f7fbf5";
-    context.font = `700 ${Math.max(10, canvas.width / 78)}px system-ui`;
-    context.fillText(`T${player.track_id}`, point.x + radius + 4, point.y - radius - 2);
+    context.font = `700 ${Math.max(11, canvas.width / 78)}px system-ui, sans-serif`;
+    context.textBaseline = "alphabetic";
+    drawLabel(markerText(player), point.x + markerRadius + 5, point.y - markerRadius);
+    const suggestion = isSelected ? formatSuggestedName(player.suggested_name) : null;
+    if (suggestion) {
+      context.font = `650 ${Math.max(11, canvas.width / 86)}px system-ui, sans-serif`;
+      drawLabel(suggestion, point.x + markerRadius + 5, point.y + 4);
+    }
   }
   context.globalAlpha = 1;
+}
+
+function drawBall(rect, frame) {
+  const position = ballPosition(frame);
+  if (!position) return;
+  const point = pitchPoint(rect, position.x_cm, position.y_cm);
+  const radius = Math.max(5, canvas.width / 150);
+  context.save();
+  context.globalAlpha = 1;
+  context.fillStyle = "#f4f1e8";
+  context.strokeStyle = "#1a140c";
+  context.lineWidth = Math.max(2, canvas.width / 480);
+  context.beginPath();
+  context.arc(point.x, point.y, radius, 0, Math.PI * 2);
+  context.fill();
+  context.stroke();
+  context.fillStyle = "rgba(255, 255, 255, 0.9)";
+  context.beginPath();
+  context.arc(point.x - radius * 0.28, point.y - radius * 0.3, radius * 0.28, 0, Math.PI * 2);
+  context.fill();
+  context.font = `700 ${Math.max(10, canvas.width / 90)}px system-ui, sans-serif`;
+  drawLabel("Ball", point.x + radius + 4, point.y - radius);
+  context.restore();
 }
 
 function resizeCanvas() {
@@ -261,6 +321,7 @@ function renderCurrentFrame() {
   drawPitch(rect);
   drawTrail(rect, frame);
   drawPlayers(rect, frame);
+  drawBall(rect, frame);
 
   const time = currentFrameIndex / fps;
   timeLabel.textContent = formatTimestamp(time);
@@ -268,18 +329,16 @@ function renderCurrentFrame() {
   frameLabel.textContent = `Frame ${frame.frame} · Segment ${frame.segment}`;
   cutBadge.hidden = !frame.camera_cut;
   pitchEmpty.hidden = frame.calibration_trusted;
+  pitchEmpty.textContent = frame.calibration_trusted
+    ? ""
+    : `Calibration unavailable${frame.calibration_reason ? ` · ${frame.calibration_reason}` : ""}`;
   timelineProgress.style.width = `${Math.min(100, (time / (replay.frames.length / fps)) * 100)}%`;
 
-  if (selectedTrackId == null) {
-    followStatus.textContent = "Select a player on the pitch or from the list.";
-  } else {
-    const selectedPlayer = playerAtFrame(frame, selectedTrackId);
-    if (!hasPosition(selectedPlayer)) {
-      followStatus.textContent = `T${selectedTrackId} · Player not visible.`;
-    } else {
-      followStatus.textContent = `Following T${selectedTrackId} · ${playerDescription(selectedPlayer)}`;
-    }
-  }
+  const catalogTrack =
+    selectedTrackId == null
+      ? null
+      : catalog.find((track) => track.track_id === selectedTrackId) ?? null;
+  followStatus.textContent = followStatusText(selectedTrackId, frame, catalogTrack);
 }
 
 function schedulePlaybackLoop() {
@@ -378,6 +437,9 @@ tagForm.addEventListener("submit", (event) => {
   renderNotes();
 });
 
+video.addEventListener("error", () => {
+  videoNote.hidden = false;
+});
 video.addEventListener("play", schedulePlaybackLoop);
 video.addEventListener("pause", () => {
   playbackGeneration += 1;

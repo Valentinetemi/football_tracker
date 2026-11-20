@@ -419,6 +419,7 @@ def run_pipeline(
                             assignments=assignments,
                             suggestions=suggestions,
                             class_name=detector.class_name,
+                            ball=ball_observation,
                         )
                     output_frame = stack_replay(annotated, tactical_panel)
                 writer.write(output_frame)

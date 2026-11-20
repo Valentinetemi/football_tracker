@@ -102,7 +102,8 @@ class VideoWriter:
             self._temporary_path.unlink(missing_ok=True)
             raise RuntimeError(
                 f"OpenCV could not open an MP4 writer with codec {self.codec!r}. "
-                "Try --codec avc1 or --codec mp4v."
+                "Try --codec avc1 or --codec mp4v. For a file the dashboard can play "
+                "in a browser, prefer avc1 (H.264); mp4v often will not."
             )
         self._writer = writer
         return self
