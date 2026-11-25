@@ -3,15 +3,18 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>STEM2Connect · Follow Player Replay</title>
+    <title>Follow a player · STEM2Connect</title>
     <link rel="stylesheet" href="/app.css" />
   </head>
   <body>
     <main class="dashboard-shell">
       <header class="topbar">
-        <div>
-          <p class="eyebrow">STEM2CONNECT · VALIDATION CLIP</p>
-          <h1>Follow Player Replay</h1>
+        <div class="title-block">
+          <p class="eyebrow">STEM2Connect · local match review</p>
+          <h1>Follow a player</h1>
+          <p class="lede">
+            A coach's view of one clip. Markers appear only for positions this frame can support.
+          </p>
         </div>
         <div class="clock" aria-live="polite">
           <strong id="time-label">00:00.00</strong>
@@ -20,38 +23,61 @@
       </header>
 
       <section class="follow-controls" aria-label="Follow player controls">
-        <label for="player-select">Tracked player</label>
-        <select id="player-select">
-          <option value="">Choose a track…</option>
-        </select>
-        <button id="clear-selection" class="secondary" type="button">Clear selection</button>
-        <div id="follow-status" class="follow-status" aria-live="polite">
-          Select a player on the pitch or from the list.
+        <div class="control-field">
+          <label for="player-select">Tracked player</label>
+          <select id="player-select">
+            <option value="">Choose a track…</option>
+          </select>
         </div>
+        <button id="clear-selection" class="secondary" type="button">Clear selection</button>
+        <p id="follow-status" class="follow-status" aria-live="polite">
+          Select a player on the pitch or from the list.
+        </p>
       </section>
 
       <section class="replay-grid">
         <article class="panel video-panel">
           <div class="panel-heading">
             <div>
-              <span class="panel-kicker">MATCH VIEW</span>
+              <span class="panel-kicker">Match view</span>
               <h2>Annotated broadcast</h2>
             </div>
             <span id="cut-badge" class="cut-badge" hidden>Camera cut</span>
           </div>
-          <video id="match-video" src="/match.mp4" controls preload="metadata" playsinline></video>
+          <div class="video-stage">
+            <video id="match-video" src="/match.mp4" controls preload="metadata" playsinline></video>
+            <p id="video-note" class="video-note" hidden>
+              This browser could not play the video. OpenCV mp4v files often fail here. Use an
+              H.264 recording (<code>--codec avc1</code>).
+            </p>
+          </div>
         </article>
 
         <article class="panel pitch-panel">
           <div class="panel-heading">
             <div>
-              <span class="panel-kicker">LIVE POSITION</span>
+              <span class="panel-kicker">Live position</span>
               <h2>Interactive tactical pitch</h2>
             </div>
             <span class="hint">Click a marker to follow</span>
           </div>
+          <ul id="pitch-legend" class="legend" aria-label="Marker colours">
+            <li><span class="swatch swatch-team-a" aria-hidden="true"></span> Team A</li>
+            <li><span class="swatch swatch-team-b" aria-hidden="true"></span> Team B</li>
+            <li><span class="swatch swatch-gk" aria-hidden="true"></span> GK</li>
+            <li><span class="swatch swatch-referee" aria-hidden="true"></span> Referee</li>
+            <li><span class="swatch swatch-ball" aria-hidden="true"></span> Ball</li>
+          </ul>
+          <p class="legend-note">
+            Team A and Team B are anonymous shirt colours, not club names. GK is a goalkeeper
+            whose team is not guessed. A name ending in ? is a suggestion.
+          </p>
           <div class="pitch-stage">
-            <canvas id="pitch-canvas" aria-label="Interactive top-down football pitch"></canvas>
+            <canvas
+              id="pitch-canvas"
+              aria-label="Interactive top-down football pitch"
+              aria-describedby="pitch-legend"
+            ></canvas>
             <div id="pitch-empty" class="pitch-empty" hidden>Calibration unavailable</div>
           </div>
         </article>
@@ -59,7 +85,7 @@
 
       <section class="timeline-panel panel" aria-label="Moment tags">
         <div class="timeline-copy">
-          <span class="panel-kicker">LOCAL NOTES</span>
+          <span class="panel-kicker">Local notes</span>
           <h2>Tag a moment</h2>
           <p>Tags stay in this browser. Open one to jump two seconds before the moment.</p>
         </div>
@@ -81,6 +107,7 @@
               required
               placeholder="What happened?"
               aria-label="Moment note"
+              autocomplete="off"
             />
             <button type="submit">Add tag</button>
           </form>

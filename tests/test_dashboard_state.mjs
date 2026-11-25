@@ -2,12 +2,17 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  ballPosition,
   buildTrackCatalog,
   buildTrailSegments,
+  entityLabel,
   findNearestPlayer,
+  followStatusText,
+  formatSuggestedName,
   frameIndexForTime,
   noteJumpTime,
   playerAtFrame,
+  trackMenuLabel,
 } from "../dashboard/replay-state.mjs";
 
 const player = (trackId, x, y, team = "team-a") => ({
@@ -69,4 +74,175 @@ test("builds track choices and supports pitch clicking", () => {
   assert.equal(catalog[0].team, "team-a");
   assert.equal(findNearestPlayer(frames[0].players, 790, 790, 100).track_id, 8);
   assert.equal(findNearestPlayer(frames[0].players, 4000, 4000, 100), null);
+});
+
+test("labels goalkeepers as GK and keeps the question mark on a suggested name", () => {
+  const goalkeeper = {
+    track_id: 4,
+    role: "goalkeeper",
+    team: null,
+    label: "goalkeeper/unknown",
+    suggested_name: null,
+  };
+  assert.equal(entityLabel(goalkeeper), "GK");
+  assert.equal(trackMenuLabel(goalkeeper), "T4 · GK");
+  assert.equal(trackMenuLabel(goalkeeper).includes("goalkeeper/unknown"), false);
+
+  const named = {
+    track_id: 7,
+    role: "player",
+    team: "team-a",
+    label: "team-a",
+    suggested_name: "Ada Example",
+  };
+  assert.equal(formatSuggestedName("Ada Example"), "Ada Example?");
+  assert.equal(formatSuggestedName("Ada Example?"), "Ada Example?");
+  assert.equal(trackMenuLabel(named), "T7 · team-a · Ada Example?");
+});
+
+test("catalog keeps a suggested name and does not invent one", () => {
+  const frames = [
+    {
+      frame: 0,
+      players: [
+        {
+          track_id: 7,
+          role: "player",
+          team: null,
+          label: "unknown",
+          suggested_name: null,
+        },
+      ],
+    },
+    {
+      frame: 1,
+      players: [
+        {
+          track_id: 7,
+          role: "player",
+          team: "team-a",
+          label: "team-a",
+          suggested_name: "Ada",
+        },
+      ],
+    },
+  ];
+  const catalog = buildTrackCatalog(frames);
+  assert.equal(catalog[0].suggested_name, "Ada");
+  assert.equal(catalog[0].team, "team-a");
+  const renamed = buildTrackCatalog([
+    ...frames,
+    {
+      frame: 2,
+      players: [
+        {
+          track_id: 7,
+          role: "player",
+          team: "team-a",
+          label: "team-a",
+          suggested_name: "Bea",
+        },
+      ],
+    },
+    {
+      frame: 3,
+      players: [
+        {
+          track_id: 7,
+          role: "player",
+          team: "team-a",
+          label: "team-a",
+          suggested_name: null,
+        },
+      ],
+    },
+  ]);
+  assert.equal(renamed[0].suggested_name, "Bea");
+  assert.equal(trackMenuLabel(renamed[0]), "T7 · team-a · Bea?");
+  const unnamed = buildTrackCatalog([
+    {frame: 0, players: [{track_id: 3, role: "referee", team: null, label: "referee"}]},
+  ]);
+  assert.equal(unnamed[0].suggested_name, null);
+  assert.equal(trackMenuLabel(unnamed[0]), "T3 · referee");
+});
+
+test("draws a ball only when it is visible on a trusted calibration", () => {
+  const visible = {
+    calibration_trusted: true,
+    ball: {visible: true, reliable: true, x_cm: 10, y_cm: 20},
+  };
+  assert.deepEqual(ballPosition(visible), {x_cm: 10, y_cm: 20});
+  assert.equal(ballPosition({...visible, calibration_trusted: false}), null);
+  assert.equal(
+    ballPosition({
+      calibration_trusted: true,
+      ball: {visible: false, reliable: true, x_cm: 10, y_cm: 20},
+    }),
+    null,
+  );
+  assert.equal(
+    ballPosition({
+      calibration_trusted: true,
+      ball: {visible: true, reliable: false, x_cm: 10, y_cm: 20},
+    }),
+    null,
+  );
+  assert.equal(
+    ballPosition({
+      calibration_trusted: true,
+      ball: {visible: true, reliable: true, x_cm: null, y_cm: null},
+    }),
+    null,
+  );
+  assert.equal(ballPosition({calibration_trusted: true, players: []}), null);
+});
+
+test("keeps the follow status on the same track when that player disappears", () => {
+  const hidden = {frame: 3, players: [{track_id: 8, x_cm: 10, y_cm: 10, role: "player", team: "team-b", label: "team-b"}]};
+  const catalogTrack = {
+    track_id: 7,
+    role: "player",
+    team: "team-a",
+    label: "team-a",
+    suggested_name: "Ada",
+  };
+  const text = followStatusText(7, hidden, catalogTrack);
+  assert.match(text, /T7/);
+  assert.match(text, /Ada\?/);
+  assert.match(text, /Player not visible/);
+  assert.equal(text.includes("T8"), false);
+  const visible = {
+    frame: 4,
+    players: [
+      {
+        track_id: 7,
+        x_cm: 1,
+        y_cm: 2,
+        role: "goalkeeper",
+        team: null,
+        label: "goalkeeper/unknown",
+        suggested_name: null,
+      },
+    ],
+  };
+  assert.equal(followStatusText(7, visible, catalogTrack), "Following T7 · GK");
+  const namedLater = {
+    frame: 1,
+    players: [
+      {
+        track_id: 7,
+        x_cm: 1,
+        y_cm: 2,
+        role: "player",
+        team: "team-a",
+        label: "team-a",
+        suggested_name: null,
+      },
+    ],
+  };
+  assert.equal(followStatusText(7, namedLater, catalogTrack), "Following T7 · team-a");
+  assert.equal(
+    followStatusText(null, visible, null),
+    "Select a player on the pitch or from the list.",
+  );
 });

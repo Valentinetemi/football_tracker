@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 import supervision as sv
 
+from football_tracker.ball import BallObservation
 from football_tracker.classification import EntityAssignment
 from football_tracker.pitch import PitchCalibration, SoccerPitch
 from football_tracker.replay import ReplayDataExporter
@@ -72,6 +73,87 @@ class ReplayDataExporterTests(unittest.TestCase):
         self.assertFalse(payload["frames"][1]["calibration_trusted"])
         self.assertIsNone(payload["frames"][1]["players"][0]["x_cm"])
         self.assertIsNone(payload["frames"][1]["players"][0]["y_cm"])
+        hidden_ball = {"visible": False, "reliable": False, "x_cm": None, "y_cm": None}
+        self.assertEqual(payload["frames"][0]["ball"], hidden_ball)
+        self.assertEqual(payload["frames"][1]["ball"], hidden_ball)
+
+    def test_ball_is_exported_only_when_measured_and_calibration_is_trusted(self) -> None:
+        on_pitch = BallObservation((100.0, 100.0), (96.0, 96.0, 104.0, 104.0), 0.8)
+        off_pitch = BallObservation((2000.0, 100.0), (1996.0, 96.0, 2004.0, 104.0), 0.8)
+        detections = sv.Detections.empty()
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "replay.json"
+            with ReplayDataExporter(
+                output,
+                fps=25.0,
+                frame_count=4,
+                pitch=SoccerPitch(),
+                source_video="clip.mp4",
+            ) as exporter:
+                exporter.write_frame(
+                    frame_index=0,
+                    segment=1,
+                    camera_cut=False,
+                    calibration=trusted_calibration(),
+                    detections=detections,
+                    assignments=None,
+                    suggestions=None,
+                    class_name=lambda _: "player",
+                    ball=on_pitch,
+                )
+                exporter.write_frame(
+                    frame_index=1,
+                    segment=1,
+                    camera_cut=False,
+                    calibration=PitchCalibration.unavailable("too few landmarks"),
+                    detections=detections,
+                    assignments=None,
+                    suggestions=None,
+                    class_name=lambda _: "player",
+                    ball=on_pitch,
+                )
+                exporter.write_frame(
+                    frame_index=2,
+                    segment=1,
+                    camera_cut=False,
+                    calibration=trusted_calibration(),
+                    detections=detections,
+                    assignments=None,
+                    suggestions=None,
+                    class_name=lambda _: "player",
+                    ball=off_pitch,
+                )
+                exporter.write_frame(
+                    frame_index=3,
+                    segment=1,
+                    camera_cut=False,
+                    calibration=trusted_calibration(),
+                    detections=detections,
+                    assignments=None,
+                    suggestions=None,
+                    class_name=lambda _: "player",
+                    ball=None,
+                )
+            payload = json.loads(output.read_text(encoding="utf-8"))
+
+        visible = payload["frames"][0]["ball"]
+        self.assertEqual(visible["visible"], True)
+        self.assertEqual(visible["reliable"], True)
+        self.assertAlmostEqual(visible["x_cm"], 1200.0)
+        self.assertAlmostEqual(visible["y_cm"], 1166.67)
+        untrusted = payload["frames"][1]["ball"]
+        self.assertEqual(untrusted["reliable"], True)
+        self.assertEqual(untrusted["visible"], False)
+        self.assertIsNone(untrusted["x_cm"])
+        self.assertIsNone(untrusted["y_cm"])
+        outside = payload["frames"][2]["ball"]
+        self.assertEqual(outside["reliable"], True)
+        self.assertEqual(outside["visible"], False)
+        self.assertIsNone(outside["x_cm"])
+        self.assertIsNone(outside["y_cm"])
+        absent = payload["frames"][3]["ball"]
+        self.assertEqual(absent, {"visible": False, "reliable": False, "x_cm": None, "y_cm": None})
 
     def test_rejects_out_of_order_frames_without_publishing_partial_json(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

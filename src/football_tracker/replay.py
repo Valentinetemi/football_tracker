@@ -12,10 +12,11 @@ from typing import TextIO
 
 import supervision as sv
 
+from football_tracker.ball import BallObservation
 from football_tracker.classification import EntityAssignment, role_from_class_name
 from football_tracker.identity import PlayerSuggestion
 from football_tracker.pitch import PitchCalibration, SoccerPitch
-from football_tracker.tactical import project_visible_entities
+from football_tracker.tactical import project_measured_ball, project_visible_entities
 
 
 class ReplayDataExporter:
@@ -79,6 +80,7 @@ class ReplayDataExporter:
         assignments: list[EntityAssignment] | None,
         suggestions: list[PlayerSuggestion | None] | None,
         class_name: Callable[[int], str],
+        ball: BallObservation | None = None,
     ) -> None:
         """Append one frame while keeping uncertain identity output explicitly anonymous."""
         if self._handle is None:
@@ -124,6 +126,11 @@ class ReplayDataExporter:
                 }
             )
 
+        projected_ball = project_measured_ball(
+            pitch=self.pitch,
+            calibration=calibration,
+            ball=ball,
+        )
         record = {
             "frame": frame_index,
             "segment": segment,
@@ -131,6 +138,14 @@ class ReplayDataExporter:
             "calibration_trusted": calibration.trusted,
             "calibration_reason": calibration.reason,
             "players": players,
+            # Optional measured ball. Coordinates stay null unless this frame's
+            # observation is reliable and the calibration can place it on the pitch.
+            "ball": {
+                "visible": projected_ball is not None,
+                "reliable": ball is not None,
+                "x_cm": round(projected_ball[0], 2) if projected_ball is not None else None,
+                "y_cm": round(projected_ball[1], 2) if projected_ball is not None else None,
+            },
         }
         if self._frames_written:
             self._handle.write(",")
